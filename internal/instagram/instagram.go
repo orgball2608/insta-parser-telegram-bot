@@ -1,7 +1,6 @@
 package instagram
 
 import (
-	"errors"
 	"github.com/Davincible/goinsta/v3"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/config"
 	"log"
@@ -19,8 +18,20 @@ func NewUser(username, password string) *InstaUser {
 	}
 }
 
+func (i *InstaUser) ReloadSession(cfg *config.Config) error {
+	insta, err := goinsta.Import("./goinsta-session")
+	if err != nil {
+		log.Printf("Couldn't recover the session: %v", err)
+		return err
+	}
+
+	i.User = insta
+
+	log.Println("Successfully logged in by session")
+	return nil
+}
+
 func (i *InstaUser) LoginInstagram(cfg *config.Config) error {
-	log.Printf("User: %s, Pass: %s\n", cfg.Instagram.User, cfg.Instagram.Pass)
 	if err := i.ReloadSession(cfg); err != nil {
 		err := i.User.Login()
 		if err != nil {
@@ -34,8 +45,6 @@ func (i *InstaUser) LoginInstagram(cfg *config.Config) error {
 			log.Printf("Couldn't save the session: %v", err)
 		}
 	}
-
-	log.Println("Login by session success")
 	return nil
 }
 
@@ -52,20 +61,6 @@ func (i *InstaUser) GetUserStories(userName string) ([]*goinsta.Item, error) {
 		log.Printf("Stories error: %v", err)
 		return nil, err
 	}
-	log.Printf("Stories: %v\n", stories.Items)
 
 	return stories.Items, nil
-}
-
-func (i *InstaUser) ReloadSession(cfg *config.Config) error {
-	insta, err := goinsta.Import("./goinsta-session")
-	if err != nil {
-		log.Printf("Couldn't recover the session: %v", err)
-		return errors.New("couldn't recover the session")
-	}
-
-	i.User = insta
-
-	log.Println("Successfully logged in by session")
-	return nil
 }
