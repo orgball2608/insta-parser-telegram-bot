@@ -4,6 +4,6 @@
 *.iml
 out
 gen
-db
+/db
 goinsta-session
 config.yml
