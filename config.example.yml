@@ -1,0 +1,20 @@
+postgres:
+  port:
+  host:
+  user:
+  pass:
+  name:
+  sslmode:
+
+telegram:
+  user:
+  token:
+  channel:
+
+instagram:
+  username:
+  password:
+  userparse:
+
+parser:
+  minutes: 60

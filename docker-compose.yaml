@@ -1,0 +1,20 @@
+version: '3.1'
+services:
+  bot:
+    build: ./
+    command: ./app
+    depends_on:
+      - pgdb
+    restart: always
+
+  pgdb:
+    image: "postgres:11"
+    container_name: "pgdb"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=qwerty123
+      - POSTGRES_DB=postgres
+    ports:
+      - "54320:5432"
+    volumes:
+      - /Users/waang0702/University/insta-parser-telegram-bot/db/data:/var/lib/postgresql/data
