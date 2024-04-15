@@ -15,7 +15,7 @@ type Postgres struct {
 }
 
 func NewConnect(cfg *config.Config) (*Postgres, error) {
-	connect, err := sql.Open("postgres", fmt.Sprintf("dbname=%s user=%s password=%s host=%s port=%d sslmode=%s ", cfg.Postgres.Name, cfg.Postgres.User, cfg.Postgres.Pass, cfg.Postgres.Host, cfg.Postgres.Port, cfg.Postgres.Sslmode))
+	connect, err := sql.Open("postgres", fmt.Sprintf("dbname=%s user=%s password=%s host=%s port=%d sslmode=%s ", cfg.Postgres.Name, cfg.Postgres.User, cfg.Postgres.Pass, cfg.Postgres.Host, cfg.Postgres.Port, cfg.Postgres.SslMode))
 	if err != nil {
 		return nil, err
 	}

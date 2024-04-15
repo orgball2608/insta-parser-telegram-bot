@@ -4,8 +4,8 @@ out
 gen
 /db
 goinsta-session
-config.yml
 coverage.out
 .vscode
 .DS_Store
 build-out*
+.env

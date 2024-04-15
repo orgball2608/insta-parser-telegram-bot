@@ -9,25 +9,25 @@ import (
 
 type Config struct {
 	Postgres struct {
-		Port    int    `yaml:"port"`
-		Host    string `yaml:"host"`
-		User    string `yaml:"user"`
-		Pass    string `yaml:"pass"`
-		Name    string `yaml:"name"`
-		Sslmode string `yaml:"sslmode"`
+		Port    int    `env:"POSTGRES_PORT"`
+		Host    string `env:"POSTGRES_HOST"`
+		User    string `env:"POSTGRES_USER"`
+		Pass    string `env:"POSTGRES_PASS"`
+		Name    string `env:"POSTGRES_NAME"`
+		SslMode string `env:"POSTGRES_SSL_MODE"`
 	}
 	Telegram struct {
-		User    int64  `yaml:"user"`
-		Token   string `yaml:"token"`
-		Channel string `yaml:"channel"`
+		User    int64  `env:"TELEGRAM_USER"`
+		Token   string `env:"TELEGRAM_TOKEN"`
+		Channel string `env:"TELEGRAM_CHANNEL"`
 	}
 	Instagram struct {
-		User      string `yaml:"username"`
-		Pass      string `yaml:"password"`
-		UserParse string `yaml:"userparse"`
+		User      string `env:"INSTAGRAM_USER"`
+		Pass      string `env:"INSTAGRAM_PASS"`
+		UserParse string `env:"INSTAGRAM_USER_PARSE"`
 	}
 	Parser struct {
-		Minutes int `yaml:"minutes"`
+		Minutes int `env:"PARSER_MINUTES"`
 	}
 }
 
@@ -39,7 +39,7 @@ var (
 func GetConfig() *Config {
 	once.Do(func() {
 		cfg = &Config{}
-		if err := cleanenv.ReadConfig("config.yml", cfg); err != nil {
+		if err := cleanenv.ReadConfig(".env", cfg); err != nil {
 			help, _ := cleanenv.GetDescription(cfg, nil)
 			log.Fatalln(err, help)
 		}
