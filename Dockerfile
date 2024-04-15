@@ -18,7 +18,7 @@ FROM alpine:latest
 
 # RUN apk --no-cache add ca-certificates
 # RUN apk --no-cache add ca-certificates tzdata
-# RUN apk --no-cache add tzdata
+RUN apk --no-cache add tzdata
 
 # Done apk add
 
