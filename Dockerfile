@@ -17,7 +17,8 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o app ./cmd/main.go
 FROM alpine:latest
 
 # RUN apk --no-cache add ca-certificates
-#RUN apk --no-cache add ca-certificates tzdata
+# RUN apk --no-cache add ca-certificates tzdata
+# RUN apk --no-cache add tzdata
 
 # Done apk add
 
