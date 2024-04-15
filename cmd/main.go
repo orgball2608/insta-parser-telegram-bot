@@ -43,7 +43,7 @@ func main() {
 	for {
 		currentTime := getCurrentTime()
 		hour := currentTime.Hour()
-		if (10 <= hour && hour <= 16) || (hour == 20) {
+		if 12 <= hour && hour <= 16 {
 			usernames := strings.Split(cfg.Instagram.UserParse, ";")
 			for _, username := range usernames {
 				err := parser.Start(insta, bot, pg, cfg, username)

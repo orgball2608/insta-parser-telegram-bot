@@ -1,15 +1,18 @@
-version: '3.1'
+version: '3.9'
 services:
-  bot:
-    build: ./
-    command: ./app
+  app:
+    build:
+        context: .
+        dockerfile: Dockerfile
     depends_on:
-      - pgdb
-    restart: always
+      - postgres
+    restart: unless-stopped
+    networks:
+      - app-tier
 
-  pgdb:
-    image: "postgres:11"
-    container_name: "pgdb"
+  postgres:
+    image: "postgres:14"
+    container_name: "postgres"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=qwerty123
@@ -17,4 +20,11 @@ services:
     ports:
       - "54320:5432"
     volumes:
-      - /Users/waang0702/University/insta-parser-telegram-bot/db/data:/var/lib/postgresql/data
+      - postgres:/var/lib/postgresql/data
+    networks:
+      - app-tier
+    restart: always
+
+networks:
+  app-tier:
+    driver: bridge
