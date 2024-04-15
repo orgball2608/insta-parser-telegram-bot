@@ -39,11 +39,10 @@ var (
 func GetConfig() *Config {
 	once.Do(func() {
 		cfg = &Config{}
-		if err := cleanenv.ReadConfig(".env", cfg); err != nil {
+		if err := cleanenv.ReadEnv(cfg); err != nil {
 			help, _ := cleanenv.GetDescription(cfg, nil)
 			log.Fatalln(err, help)
 		}
-
 	})
 	return cfg
 }
