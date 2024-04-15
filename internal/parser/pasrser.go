@@ -9,8 +9,8 @@ import (
 	"log"
 )
 
-func Start(instagram *instagram.InstaUser, bot *telegram.Bot, postgres *db.Postgres, cfg *config.Config) error {
-	stories, err := instagram.GetUserStories(cfg.Instagram.UserParse)
+func Start(instagram *instagram.InstaUser, bot *telegram.Bot, postgres *db.Postgres, cfg *config.Config, username string) error {
+	stories, err := instagram.GetUserStories(username)
 	if err != nil {
 		return err
 	}
@@ -36,7 +36,7 @@ func Start(instagram *instagram.InstaUser, bot *telegram.Bot, postgres *db.Postg
 			Bytes: media,
 		}
 
-		if bot.SendToChannel(cfg.Telegram.Channel, photoBytes, stories.MediaType) != nil {
+		if bot.SendToChannel(cfg.Telegram.Channel, photoBytes, stories.MediaType, username) != nil {
 			log.Printf("Error send media to channel: %v", err)
 			return err
 		}

@@ -1,5 +1,3 @@
-
-# IntelliJ project files
 .idea
 *.iml
 out
@@ -7,3 +5,7 @@ gen
 /db
 goinsta-session
 config.yml
+coverage.out
+.vscode
+.DS_Store
+build-out*

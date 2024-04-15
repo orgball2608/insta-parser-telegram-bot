@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/config"
@@ -43,10 +44,13 @@ func main() {
 		currentTime := getCurrentTime()
 		hour := currentTime.Hour()
 		if (10 <= hour && hour <= 16) || (hour == 20) {
-			err := parser.Start(insta, bot, pg, cfg)
-			if err != nil {
-				errString := err.Error()
-				bot.SendError(cfg.Telegram.User, "Parser error:"+errString)
+			usernames := strings.Split(cfg.Instagram.UserParse, ";")
+			for _, username := range usernames {
+				err := parser.Start(insta, bot, pg, cfg, username)
+				if err != nil {
+					errString := err.Error()
+					bot.SendError(cfg.Telegram.User, "Parser error:"+errString)
+				}
 			}
 		}
 		time.Sleep(time.Minute * time.Duration(cfg.Parser.Minutes))

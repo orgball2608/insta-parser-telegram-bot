@@ -24,7 +24,7 @@ type Config struct {
 	Instagram struct {
 		User      string `yaml:"username"`
 		Pass      string `yaml:"password"`
-		UserParse string `ymal:"userParse"`
+		UserParse string `yaml:"userparse"`
 	}
 	Parser struct {
 		Minutes int `yaml:"minutes"`
