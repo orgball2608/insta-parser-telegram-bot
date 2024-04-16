@@ -1,4 +1,4 @@
-version: '3.9'
+version: '3.8'
 services:
   app:
     image: waang07/instagram-notifier:latest
@@ -9,19 +9,20 @@ services:
       - ./.env
 
   postgres:
-    image: "postgres:14"
-    container_name: "postgres"
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=qwerty123
-      - POSTGRES_DB=postgres
+    image: postgres:15
     ports:
-      - "54320:5432"
+      - "54326:5432"
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test
     volumes:
       - postgres:/var/lib/postgresql/data
     networks:
-      - app-tier
-    restart: always
+        - app-tier
+
+volumes:
+  postgres:
 
 networks:
   app-tier:

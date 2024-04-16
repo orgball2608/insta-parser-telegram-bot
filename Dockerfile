@@ -5,30 +5,29 @@ ENV GO111MODULE=on
 
 WORKDIR /app
 
+RUN apk add --no-cache git curl wget upx make
+
 COPY ${BE_PATH}go.mod ${BE_PATH}go.sum ./
 
 RUN go mod download
 
 COPY ${BE_PATH}. .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o app ./cmd/main.go
+RUN make build
 
 # Start a new stage from scratch
 FROM alpine:latest
 
 # RUN apk --no-cache add ca-certificates
-# RUN apk --no-cache add ca-certificates tzdata
+# RUN apk --no-cache add ca-certificates
 RUN apk --no-cache add tzdata
 
-# Done apk add
+WORKDIR /app
 
-WORKDIR /root/
+COPY --from=be-builder /app/build-out /app/
+COPY --from=builder /app/docker-entrypoint.sh /app/
+COPY --from=builder /app/Makefile /app/
 
-# RUN apk --no-cache add ca-certificates
-# RUN apk add --no-cache tzdata
+RUN chmod +x /app/docker-entrypoint.sh
 
-COPY --from=be-builder /app/app ./
-
-# Run image
-
-CMD ["./app"]
+CMD ["sh", "/app/docker-entrypoint.sh"]

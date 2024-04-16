@@ -12,6 +12,7 @@ tests:
 build:
 	rm ./build-out || true
 	go build -ldflags="-s -w" -o build-out cmd/main.go
+	upx -9 -q ./build-out
 
 docker-build:
 	docker-compose up --build bot
