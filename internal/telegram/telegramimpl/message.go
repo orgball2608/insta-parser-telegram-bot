@@ -41,7 +41,7 @@ func (t *TelegramImpl) SendMessageToUser(message string) {
 }
 
 func (t *TelegramImpl) SendMessageToChanel(msg string) {
-	newMsg := tgbotapi.NewMessageToChannel(t.config.Telegram.Channel, msg)
+	newMsg := tgbotapi.NewMessageToChannel("@"+t.config.Telegram.Channel, msg)
 	_, err := t.Api.Send(newMsg)
 	if err != nil {
 		t.logger.Error("Error sending message to channel", "Error", err)

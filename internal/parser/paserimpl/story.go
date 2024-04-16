@@ -1,31 +1,56 @@
 package paserimpl
 
 import (
+	"context"
+	"errors"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"log"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
+	storyRepo "github.com/orgball2608/insta-parser-telegram-bot/internal/repository/story"
 	"time"
 )
 
-func (p *ParserImpl) ParseStories(username string) error {
+func (p *ParserImpl) ParseStories(ctx context.Context, username string) error {
 	stories, err := p.Instagram.GetUserStories(username)
 	if err != nil {
+		p.Logger.Error("Error get user stories", "Error", err)
 		return err
 	}
-	for _, stories := range stories {
-		storiesId := stories.GetID()
+	for _, story := range stories {
+		storyID := story.GetID()
 
-		log.Println("Stories ID: ", storiesId)
+		p.Logger.Info("Story ID"+storyID, "Story ID")
 
-		takenAt := time.Unix(stories.TakenAt, 0)
-		result := p.Postgres.Check(storiesId, username, takenAt)
-		if result {
-			log.Println("Stories already sent")
+		createdAt := time.Unix(story.TakenAt, 0)
+		storyData, err := p.StoryRepo.GetByStoryID(ctx, storyID)
+		p.Logger.Info("Story ID"+storyID, "Story ID", storyData)
+
+		if err != nil {
+			if errors.Is(err, storyRepo.ErrNotFound) {
+				p.Logger.Info("Story not found in DB")
+				story := domain.Story{
+					StoryID:   storyID,
+					UserName:  username,
+					Result:    true,
+					CreatedAt: createdAt,
+				}
+				if err := p.StoryRepo.Create(ctx, story); err != nil {
+					p.Logger.Error("Error create story", "Error", err)
+					return err
+				}
+			} else {
+				p.Logger.Error("Error get story", "Error", err)
+				return err
+			}
+		}
+
+		if storyData.Result {
+			p.Logger.Info("Stories already sent")
 			continue
 		}
 
-		media, err := stories.Download()
+		media, err := story.Download()
 		if err != nil {
-			log.Printf("Error download media: %v", err)
+			p.Logger.Error("Error download media", "Error", err)
 			return err
 		}
 
@@ -34,12 +59,12 @@ func (p *ParserImpl) ParseStories(username string) error {
 			Bytes: media,
 		}
 
-		if p.Telegram.SendToChannel(photoBytes, stories.MediaType, username) != nil {
-			log.Printf("Error send media to channel: %v", err)
+		if err := p.Telegram.SendToChannel(photoBytes, story.MediaType, username); err != nil {
+			p.Logger.Error("Error send media to channel", "Error", err)
 			return err
 		}
 
-		log.Println("Media sent to channel")
+		p.Logger.Info("Media sent to channel")
 	}
 	return nil
 }

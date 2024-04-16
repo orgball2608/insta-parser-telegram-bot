@@ -1,5 +1,7 @@
 package parser
 
+import "context"
+
 type Client interface {
-	ParseStories(username string) error
+	ParseStories(ctx context.Context, username string) error
 }
