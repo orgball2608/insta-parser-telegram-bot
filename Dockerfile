@@ -19,7 +19,6 @@ RUN make build
 FROM alpine:latest
 
 # RUN apk --no-cache add ca-certificates
-# RUN apk --no-cache add ca-certificates
 RUN apk --no-cache add tzdata
 
 WORKDIR /app

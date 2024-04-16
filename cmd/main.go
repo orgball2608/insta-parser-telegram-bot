@@ -1,60 +1,86 @@
 package main
 
 import (
-	"log"
+	"context"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram/instagramimpl"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser/paserimpl"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram/telegramimpl"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/config"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
 	"strings"
 	"time"
 
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/config"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/db"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
+	"go.uber.org/fx"
 )
 
 func main() {
-	cfg := config.GetConfig()
+	fx.New(
+		fx.Provide(
+			config.NewConfig,
+			logger.FxOption,
+			fx.Annotate(
+				telegramimpl.NewBot,
+				fx.As(new(telegram.Client)),
+			),
+			db.NewConnect,
+			fx.Annotate(
+				instagramimpl.NewUser,
+				fx.As(new(instagram.Client)),
+			),
+			fx.Annotate(
+				paserimpl.NewParser,
+				fx.As(new(parser.Client)),
+			),
+		),
+		fx.Invoke(run),
+	).Run()
+}
 
-	bot, err := telegram.NewBot(cfg.Telegram.Token)
-	if err != nil {
-		log.Fatalln("Telegram bot create error:", err)
-	}
-
-	bot.SendError(cfg.Telegram.User, "bot start")
-
-	pg, err := db.NewConnect(cfg)
-	if err != nil {
-		errString := err.Error()
-		bot.SendError(cfg.Telegram.User, "BD error:"+errString)
-	}
-
-	err = pg.MigrationInit()
-	if err != nil {
-		errString := err.Error()
-		bot.SendError(cfg.Telegram.User, "Migration error:"+errString)
-	}
-
-	insta := instagram.NewUser(cfg.Instagram.User, cfg.Instagram.Pass)
-	if err = insta.LoginInstagram(cfg); err != nil {
-		errString := err.Error()
-		bot.SendError(cfg.Telegram.User, "Instagram login error:"+errString)
-	}
-
-	for {
-		currentTime := getCurrentTime()
-		hour := currentTime.Hour()
-		if 12 <= hour && hour <= 24 {
-			usernames := strings.Split(cfg.Instagram.UserParse, ";")
-			for _, username := range usernames {
-				err := parser.Start(insta, bot, pg, cfg, username)
-				if err != nil {
-					errString := err.Error()
-					bot.SendError(cfg.Telegram.User, "Parser error:"+errString)
-				}
+func run(lc fx.Lifecycle, cfg *config.Config, logger logger.Logger, telegram telegram.Client,
+	pg *db.Postgres, instagram instagram.Client, p parser.Client) {
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			err := pg.MigrationInit()
+			if err != nil {
+				logger.Error("Migration error: %v", err)
+				errString := err.Error()
+				telegram.SendMessageToUser("Migration error:" + errString)
 			}
-		}
-		time.Sleep(time.Minute * time.Duration(cfg.Parser.Minutes))
-	}
+
+			err = instagram.Login()
+			if err != nil {
+				logger.Error("Instagram login error: %v", err)
+				errString := err.Error()
+				telegram.SendMessageToUser("Instagram login error:" + errString)
+			}
+
+			go func() {
+				for {
+					currentTime := getCurrentTime()
+					hour := currentTime.Hour()
+					if 12 <= hour && hour <= 14 {
+						usernames := strings.Split(cfg.Instagram.UserParse, ";")
+						for _, username := range usernames {
+							err := p.ParseStories(username)
+							if err != nil {
+								logger.Error("Parser error: %v", err)
+								errString := err.Error()
+								telegram.SendMessageToUser("Parser error:" + errString)
+							}
+							time.Sleep(time.Minute)
+						}
+					}
+					time.Sleep(time.Minute * time.Duration(cfg.Parser.Minutes))
+				}
+			}()
+
+			return nil
+		},
+	})
 }
 
 func getCurrentTime() time.Time {
