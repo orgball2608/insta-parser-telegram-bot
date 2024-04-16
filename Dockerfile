@@ -25,8 +25,8 @@ RUN apk --no-cache add tzdata
 WORKDIR /app
 
 COPY --from=be-builder /app/build-out /app/
-COPY --from=builder /app/docker-entrypoint.sh /app/
-COPY --from=builder /app/Makefile /app/
+COPY --from=be-builder /app/docker-entrypoint.sh /app/
+COPY --from=be-builder /app/Makefile /app/
 
 RUN chmod +x /app/docker-entrypoint.sh
 

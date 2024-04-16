@@ -11,7 +11,7 @@ tests:
 
 build:
 	rm ./build-out || true
-	go build -ldflags="-s -w" -o build-out cmd/main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o build-out cmd/main.go
 	upx -9 -q ./build-out
 
 docker-build:
