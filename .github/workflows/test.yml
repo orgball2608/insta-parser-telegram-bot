@@ -1,4 +1,4 @@
-name: Tests
+name: Lint and tests
 
 on:
   push:
@@ -17,9 +17,14 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Setup go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+            version: v1.54
       - name: Intall goveralls
         run: |
           go install github.com/mattn/goveralls@latest
