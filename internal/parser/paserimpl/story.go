@@ -21,31 +21,27 @@ func (p *ParserImpl) ParseStories(ctx context.Context, username string) error {
 		p.Logger.Info("Story ID"+storyID, "Story ID")
 
 		createdAt := time.Unix(story.TakenAt, 0)
-		storyData, err := p.StoryRepo.GetByStoryID(ctx, storyID)
-		p.Logger.Info("Story ID"+storyID, "Story ID", storyData)
+		_, err := p.StoryRepo.GetByStoryID(ctx, storyID)
 
-		if err != nil {
-			if errors.Is(err, storyRepo.ErrNotFound) {
-				p.Logger.Info("Story not found in DB")
-				story := domain.Story{
-					StoryID:   storyID,
-					UserName:  username,
-					Result:    true,
-					CreatedAt: createdAt,
-				}
-				if err := p.StoryRepo.Create(ctx, story); err != nil {
-					p.Logger.Error("Error create story", "Error", err)
-					return err
-				}
-			} else {
-				p.Logger.Error("Error get story", "Error", err)
-				return err
-			}
-		}
-
-		if storyData.Result {
+		if err == nil {
 			p.Logger.Info("Stories already sent")
 			continue
+		}
+
+		if errors.Is(err, storyRepo.ErrNotFound) {
+			p.Logger.Info("Story not found in DB")
+			story := domain.Story{
+				StoryID:   storyID,
+				UserName:  username,
+				CreatedAt: createdAt,
+			}
+			if err := p.StoryRepo.Create(ctx, story); err != nil {
+				p.Logger.Error("Error create story", "Error", err)
+				return err
+			}
+		} else {
+			p.Logger.Error("Error get story", "Error", err)
+			return err
 		}
 
 		media, err := story.Download()

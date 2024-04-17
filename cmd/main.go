@@ -45,7 +45,8 @@ func main() {
 
 func run(lc fx.Lifecycle, cfg *config.Config, logger logger.Logger, telegram telegram.Client, instagram instagram.Client, p parser.Client) {
 	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
+		OnStart: func(context.Context) error {
+			ctx := context.Background()
 			err := instagram.Login()
 			if err != nil {
 				logger.Error("Instagram login error", "Error", err)
@@ -77,7 +78,7 @@ func run(lc fx.Lifecycle, cfg *config.Config, logger logger.Logger, telegram tel
 			//	for {
 			//		currentTime := getCurrentTime()
 			//		hour := currentTime.Hour()
-			//		if 20 <= hour && hour <= 23 {
+			//		if 12 <= hour && hour <= 23 {
 			//			usernames := strings.Split(cfg.Instagram.UserParse, ";")
 			//			for _, username := range usernames {
 			//				err := p.ParseStories(ctx, username)

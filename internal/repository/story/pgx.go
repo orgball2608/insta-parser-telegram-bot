@@ -21,9 +21,9 @@ type Pgx struct {
 	pg *pgxpool.Pool
 }
 
-func (c *Pgx) GetByID(ctx context.Context, id int) (*domain.Story, error) {
+func (p *Pgx) GetByID(ctx context.Context, id int) (*domain.Story, error) {
 	query, args, err := repository.Sq.
-		Select("id", "story_id", "username", "result", "created_at").
+		Select("id", "story_id", "username", "created_at").
 		From("story_parsers").
 		Where(
 			"id = ?",
@@ -34,7 +34,7 @@ func (c *Pgx) GetByID(ctx context.Context, id int) (*domain.Story, error) {
 	}
 
 	story := Story{}
-	err = c.pg.QueryRow(ctx, query, args...).Scan(&story.ID, &story.StoryID, &story.UserName, &story.Result, &story.CreatedAt)
+	err = p.pg.QueryRow(ctx, query, args...).Scan(&story.ID, &story.StoryID, &story.UserName, &story.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -46,14 +46,13 @@ func (c *Pgx) GetByID(ctx context.Context, id int) (*domain.Story, error) {
 		ID:        story.ID,
 		StoryID:   story.StoryID,
 		UserName:  story.UserName,
-		Result:    story.Result,
 		CreatedAt: story.CreatedAt,
 	}, nil
 }
 
-func (c *Pgx) GetByStoryID(ctx context.Context, storyID string) (*domain.Story, error) {
+func (p *Pgx) GetByStoryID(ctx context.Context, storyID string) (*domain.Story, error) {
 	query, args, err := repository.Sq.
-		Select("id", "story_id", "username", "result", "created_at").
+		Select("id", "story_id", "username", "created_at").
 		From("story_parsers").
 		Where(
 			"story_id = ?",
@@ -64,7 +63,7 @@ func (c *Pgx) GetByStoryID(ctx context.Context, storyID string) (*domain.Story, 
 	}
 
 	story := Story{}
-	err = c.pg.QueryRow(ctx, query, args...).Scan(&story.ID, &story.StoryID, &story.UserName, &story.Result, &story.CreatedAt)
+	err = p.pg.QueryRow(ctx, query, args...).Scan(&story.ID, &story.StoryID, &story.UserName, &story.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -76,30 +75,27 @@ func (c *Pgx) GetByStoryID(ctx context.Context, storyID string) (*domain.Story, 
 		ID:        story.ID,
 		StoryID:   story.StoryID,
 		UserName:  story.UserName,
-		Result:    story.Result,
 		CreatedAt: story.CreatedAt,
 	}, nil
 }
 
-func (c *Pgx) Create(ctx context.Context, story domain.Story) error {
+func (p *Pgx) Create(ctx context.Context, story domain.Story) error {
 	query, args, err := repository.Sq.
 		Insert("story_parsers").
 		Columns(
 			"story_id",
 			"username",
-			"result",
 			"created_at",
 		).Values(
 		story.StoryID,
 		story.UserName,
-		story.Result,
 		story.CreatedAt,
 	).ToSql()
 	if err != nil {
 		return repository.ErrBadQuery
 	}
 
-	_, err = c.pg.Exec(ctx, query, args...)
+	_, err = p.pg.Exec(ctx, query, args...)
 	if err != nil {
 		return errors.Join(err, ErrCannotCreate)
 	}
