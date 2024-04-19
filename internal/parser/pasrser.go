@@ -3,5 +3,6 @@ package parser
 import "context"
 
 type Client interface {
-	ParseStories(ctx context.Context, username string) error
+	ParseUserReelStories(ctx context.Context, username string) error
+	ParseStories(ctx context.Context) error
 }

@@ -3,6 +3,7 @@ package story
 import (
 	"context"
 	"errors"
+	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
@@ -26,8 +27,7 @@ func (p *Pgx) GetByID(ctx context.Context, id int) (*domain.Story, error) {
 		Select("id", "story_id", "username", "created_at").
 		From("story_parsers").
 		Where(
-			"id = ?",
-			id,
+			sq.Eq{"id": id},
 		).ToSql()
 	if err != nil {
 		return nil, repository.ErrBadQuery
@@ -55,8 +55,7 @@ func (p *Pgx) GetByStoryID(ctx context.Context, storyID string) (*domain.Story, 
 		Select("id", "story_id", "username", "created_at").
 		From("story_parsers").
 		Where(
-			"story_id = ?",
-			storyID,
+			sq.Eq{"story_id": storyID},
 		).ToSql()
 	if err != nil {
 		return nil, repository.ErrBadQuery

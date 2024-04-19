@@ -5,7 +5,7 @@ import (
 )
 
 func (i *InstaImpl) GetUserStories(userName string) ([]*goinsta.Item, error) {
-	i.logger.Info("Get stories for username: "+userName, "Username")
+	i.logger.Info("Get stories for username", "userName", userName)
 	profile, err := i.client.VisitProfile(userName)
 	if err != nil {
 		i.logger.Error("Visit profile error", "Error", err)
