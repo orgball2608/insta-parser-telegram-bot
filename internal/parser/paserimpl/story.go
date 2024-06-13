@@ -3,6 +3,7 @@ package paserimpl
 import (
 	"context"
 	"errors"
+	"github.com/Davincible/goinsta/v3"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	storyRepo "github.com/orgball2608/insta-parser-telegram-bot/internal/repository/story"
@@ -11,7 +12,7 @@ import (
 	"time"
 )
 
-func (p *ParserImpl) ParseStories(ctx context.Context) error {
+func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
 	c := cron.New(cron.WithLocation(loc))
 	_, err := c.AddFunc("0 6,22 * * *", func() {
@@ -24,40 +25,15 @@ func (p *ParserImpl) ParseStories(ctx context.Context) error {
 			}
 		}
 	})
+
 	if err != nil {
+		p.Logger.Error("Add cron job fail", "Error", err)
 		return err
 	}
 
 	c.Start()
 	return nil
-
-	//go func() {
-	//	for {
-	//		currentTime := getCurrentTime()
-	//		hour := currentTime.Hour()
-	//		if 12 <= hour && hour <= 23 {
-	//			usernames := strings.Split(cfg.Instagram.UserParse, ";")
-	//			for _, username := range usernames {
-	//				err := p.ParseStories(ctx, username)
-	//				if err != nil {
-	//					logger.Error("Parser error", "Error", err)
-	//					telegram.SendMessageToUser("Parser error:" + err.Error())
-	//				}
-	//				time.Sleep(time.Minute)
-	//			}
-	//		}
-	//		time.Sleep(time.Minute * time.Duration(cfg.Parser.Minutes))
-	//	}
-	//}()
-	//
-	//return nil
 }
-
-//func getCurrentTime() time.Time {
-//	now := time.Now()
-//	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
-//	return now.In(loc)
-//}
 
 func (p *ParserImpl) ParseUserReelStories(ctx context.Context, username string) error {
 	stories, err := p.Instagram.GetUserStories(username)
@@ -105,7 +81,37 @@ func (p *ParserImpl) ParseUserReelStories(ctx context.Context, username string) 
 			Bytes: media,
 		}
 
-		if err := p.Telegram.SendToChannel(mediaBytes, story.MediaType, username); err != nil {
+		p.Telegram.SendMessageToChanel("New stories from " + username)
+
+		if err := p.Telegram.SendFileToChannel(mediaBytes, story.MediaType); err != nil {
+			p.Logger.Error("Error send media to channel", "Error", err)
+			return err
+		}
+
+		p.Logger.Info("Media sent to channel")
+	}
+	return nil
+}
+
+func (p *ParserImpl) ParseStories(stories []*goinsta.Item) error {
+	p.Logger.Info("Parse stories", "stories", len(stories))
+	for _, story := range stories {
+		storyID := story.GetID()
+
+		p.Logger.Info("Parse story", "story id", storyID)
+
+		media, err := story.Download()
+		if err != nil {
+			p.Logger.Error("Error download media", "Error", err)
+			return err
+		}
+
+		mediaBytes := tgbotapi.FileBytes{
+			Name:  "media",
+			Bytes: media,
+		}
+
+		if err := p.Telegram.SendFileToChannel(mediaBytes, story.MediaType); err != nil {
 			p.Logger.Error("Error send media to channel", "Error", err)
 			return err
 		}

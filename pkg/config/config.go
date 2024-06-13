@@ -39,7 +39,7 @@ var (
 	cfg  *Config
 )
 
-func NewConfig() (*Config, error) {
+func New() (*Config, error) {
 	once.Do(func() {
 		cfg = &Config{}
 		if err := cleanenv.ReadEnv(cfg); err != nil {

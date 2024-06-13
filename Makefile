@@ -6,6 +6,9 @@ endif
 dev:
 	go run ./cmd/main.go
 
+lint:
+	golangci-lint run
+
 tests:
 	go test -parallel=20 -covermode atomic -coverprofile=coverage.out ./...
 
@@ -15,7 +18,7 @@ build:
 	upx -9 -q ./build-out
 
 docker-build:
-	docker-compose up --build bot
+	docker-compose up --build
 
 docker-up:
 	docker-compose up -d

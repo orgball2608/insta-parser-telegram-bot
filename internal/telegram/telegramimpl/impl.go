@@ -16,20 +16,20 @@ type Opts struct {
 }
 
 type TelegramImpl struct {
-	Api    *tgbotapi.BotAPI
+	tgBot  *tgbotapi.BotAPI
 	logger logger.Logger
 	config *config.Config
 }
 
-func NewBot(opts Opts) (*TelegramImpl, error) {
-	bot, err := tgbotapi.NewBotAPI(opts.Config.Telegram.Token)
+func New(opts Opts) (*TelegramImpl, error) {
+	tgBot, err := tgbotapi.NewBotAPI(opts.Config.Telegram.Token)
 	if err != nil {
 		opts.Logger.Error("Error creating bot", "Error", err)
 		return nil, err
 	}
 
 	return &TelegramImpl{
-		Api:    bot,
+		tgBot:  tgBot,
 		logger: opts.Logger,
 		config: opts.Config,
 	}, nil

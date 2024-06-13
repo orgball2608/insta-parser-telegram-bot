@@ -20,7 +20,7 @@ type UserImplOpts struct {
 	Logger logger.Logger
 }
 
-func NewUser(opts UserImplOpts) *InstaImpl {
+func New(opts UserImplOpts) *InstaImpl {
 	client := goinsta.New(opts.Config.Instagram.User, opts.Config.Instagram.Pass)
 
 	return &InstaImpl{

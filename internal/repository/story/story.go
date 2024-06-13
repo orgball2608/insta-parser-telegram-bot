@@ -17,6 +17,8 @@ type Story struct {
 var ErrNotFound = errors.New("story not found")
 var ErrCannotCreate = errors.New("error create story")
 
+//go:generate go run go.uber.org/mock/mockgen -source=story.go -destination=mocks/mock.go
+
 type Repository interface {
 	GetByID(ctx context.Context, id int) (*domain.Story, error)
 	GetByStoryID(ctx context.Context, storyID string) (*domain.Story, error)

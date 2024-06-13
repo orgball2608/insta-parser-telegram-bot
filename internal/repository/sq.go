@@ -6,6 +6,6 @@ import (
 	"github.com/Masterminds/squirrel"
 )
 
-var Sq = squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar)
+var SqBuilder = squirrel.StatementBuilder.PlaceholderFormat(squirrel.Dollar)
 
 var ErrBadQuery = errors.New("bad query")

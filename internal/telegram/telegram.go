@@ -5,7 +5,8 @@ import (
 )
 
 type Client interface {
-	SendToChannel(data tgbotapi.RequestFileData, dataType int, username string) error
+	SendFileToChannel(data tgbotapi.RequestFileData, dataType int) error
+	GetUpdatesChan(u tgbotapi.UpdateConfig) (tgbotapi.UpdatesChannel, error)
 	SendMessageToUser(message string)
 	SendMessageToChanel(msg string)
 }

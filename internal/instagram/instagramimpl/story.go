@@ -16,3 +16,15 @@ func (i *InstaImpl) GetUserStories(userName string) ([]*goinsta.Item, error) {
 
 	return stories.Items, nil
 }
+
+func (i *InstaImpl) GetUserHighlights(userName string) ([]*goinsta.Reel, error) {
+	i.logger.Info("Get stories", "userName", userName)
+	profile, err := i.client.VisitProfile(userName)
+	if err != nil {
+		i.logger.Error("Visit profile error", "Error", err)
+		return nil, err
+	}
+
+	stories := profile.Highlights
+	return stories, nil
+}

@@ -23,7 +23,7 @@ type Pgx struct {
 }
 
 func (p *Pgx) GetByID(ctx context.Context, id int) (*domain.Story, error) {
-	query, args, err := repository.Sq.
+	query, args, err := repository.SqBuilder.
 		Select("id", "story_id", "username", "created_at").
 		From("story_parsers").
 		Where(
@@ -51,7 +51,7 @@ func (p *Pgx) GetByID(ctx context.Context, id int) (*domain.Story, error) {
 }
 
 func (p *Pgx) GetByStoryID(ctx context.Context, storyID string) (*domain.Story, error) {
-	query, args, err := repository.Sq.
+	query, args, err := repository.SqBuilder.
 		Select("id", "story_id", "username", "created_at").
 		From("story_parsers").
 		Where(
@@ -79,7 +79,7 @@ func (p *Pgx) GetByStoryID(ctx context.Context, storyID string) (*domain.Story, 
 }
 
 func (p *Pgx) Create(ctx context.Context, story domain.Story) error {
-	query, args, err := repository.Sq.
+	query, args, err := repository.SqBuilder.
 		Insert("story_parsers").
 		Columns(
 			"story_id",
