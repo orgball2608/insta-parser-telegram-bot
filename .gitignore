@@ -9,3 +9,4 @@ coverage.out
 .DS_Store
 build-out*
 .env
+!/tmp/
