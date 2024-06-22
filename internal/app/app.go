@@ -68,6 +68,10 @@ var App = fx.Options(
 				return err
 			}
 
+			if c.App.Env == "production" {
+				return goose.Up(db, filepath.Join(wd, "app/migrations"))
+			}
+
 			return goose.Up(db, filepath.Join(wd, "migrations"))
 		}),
 	fx.Invoke(run),
