@@ -69,7 +69,7 @@ var App = fx.Options(
 			}
 
 			if c.App.Env == "production" {
-				return goose.Up(db, filepath.Join(wd, "../migrations"))
+				return goose.Up(db, filepath.Join(wd, "migrations"))
 			}
 
 			return goose.Up(db, filepath.Join(wd, "migrations"))
