@@ -3,7 +3,7 @@ package paserimpl
 import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/repository/story"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/story"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/config"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"

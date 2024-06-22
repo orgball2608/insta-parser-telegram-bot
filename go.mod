@@ -8,14 +8,15 @@ require (
 	github.com/getsentry/sentry-go v0.27.0
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/ilyakaznacheev/cleanenv v1.5.0
-	github.com/jackc/pgx/v5 v5.5.5
-	github.com/pressly/goose/v3 v3.20.0
+	github.com/jackc/pgx/v5 v5.6.0
+	github.com/lib/pq v1.10.9
+	github.com/pressly/goose/v3 v3.21.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/zerolog v1.32.0
 	github.com/samber/slog-multi v1.0.2
 	github.com/samber/slog-sentry/v2 v2.4.2
 	github.com/samber/slog-zerolog/v2 v2.2.2
-	go.uber.org/fx v1.21.0
+	go.uber.org/fx v1.22.0
 	go.uber.org/mock v0.4.0
 )
 
@@ -43,7 +44,6 @@ require (
 	github.com/samber/lo v1.39.0 // indirect
 	github.com/samber/slog-common v0.15.2 // indirect
 	github.com/sethvargo/go-retry v0.2.4 // indirect
-	github.com/stretchr/testify v1.9.0 // indirect
 	go.uber.org/dig v1.17.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
@@ -58,4 +58,4 @@ require (
 	olympos.io/encoding/edn v0.0.0-20201019073823-d3554ca0b0a3 // indirect
 )
 
-replace github.com/Davincible/goinsta/v3 => github.com/orgball2608/goinsta/v3 v3.0.0-20240614152208-8281a4bd9f5e
+replace github.com/Davincible/goinsta/v3 => github.com/orgball2608/goinsta/v3 v3.0.0-20240622165116-6f07da860d55

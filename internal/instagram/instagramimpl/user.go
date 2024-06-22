@@ -12,7 +12,7 @@ func (i *InstaImpl) Login() error {
 			return err
 		}
 
-		i.logger.Info("Successfully logged in by login and password")
+		i.logger.Info("Successfully logged in by username and password")
 
 		if err := i.client.Export("./goinsta-session"); err != nil {
 			i.logger.Error("Couldn't save the session", "Error", err)

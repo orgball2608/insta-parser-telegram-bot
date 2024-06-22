@@ -1,7 +1,7 @@
 package fx
 
 import (
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/repository/story"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/story"
 	"go.uber.org/fx"
 )
 

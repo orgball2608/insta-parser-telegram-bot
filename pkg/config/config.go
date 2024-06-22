@@ -25,12 +25,9 @@ type Config struct {
 		Channel string `env:"TELEGRAM_CHANNEL"`
 	}
 	Instagram struct {
-		User      string `env:"INSTAGRAM_USER"`
-		Pass      string `env:"INSTAGRAM_PASS"`
-		UserParse string `env:"INSTAGRAM_USER_PARSE"`
-	}
-	Parser struct {
-		Minutes int `env:"PARSER_MINUTES" env-default:"60"`
+		User       string `env:"INSTAGRAM_USER"`
+		Pass       string `env:"INSTAGRAM_PASS"`
+		UsersParse string `env:"INSTAGRAM_USERS_PARSE"`
 	}
 }
 

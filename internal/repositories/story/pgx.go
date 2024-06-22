@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/repository"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories"
 )
 
 func NewPgx(pg *pgxpool.Pool) *Pgx {
@@ -23,14 +23,14 @@ type Pgx struct {
 }
 
 func (p *Pgx) GetByID(ctx context.Context, id int) (*domain.Story, error) {
-	query, args, err := repository.SqBuilder.
+	query, args, err := repositories.SqBuilder.
 		Select("id", "story_id", "username", "created_at").
 		From("story_parsers").
 		Where(
 			sq.Eq{"id": id},
 		).ToSql()
 	if err != nil {
-		return nil, repository.ErrBadQuery
+		return nil, repositories.ErrBadQuery
 	}
 
 	story := Story{}
@@ -51,14 +51,14 @@ func (p *Pgx) GetByID(ctx context.Context, id int) (*domain.Story, error) {
 }
 
 func (p *Pgx) GetByStoryID(ctx context.Context, storyID string) (*domain.Story, error) {
-	query, args, err := repository.SqBuilder.
+	query, args, err := repositories.SqBuilder.
 		Select("id", "story_id", "username", "created_at").
 		From("story_parsers").
 		Where(
 			sq.Eq{"story_id": storyID},
 		).ToSql()
 	if err != nil {
-		return nil, repository.ErrBadQuery
+		return nil, repositories.ErrBadQuery
 	}
 
 	story := Story{}
@@ -79,7 +79,7 @@ func (p *Pgx) GetByStoryID(ctx context.Context, storyID string) (*domain.Story, 
 }
 
 func (p *Pgx) Create(ctx context.Context, story domain.Story) error {
-	query, args, err := repository.SqBuilder.
+	query, args, err := repositories.SqBuilder.
 		Insert("story_parsers").
 		Columns(
 			"story_id",
@@ -91,7 +91,7 @@ func (p *Pgx) Create(ctx context.Context, story domain.Story) error {
 		story.CreatedAt,
 	).ToSql()
 	if err != nil {
-		return repository.ErrBadQuery
+		return repositories.ErrBadQuery
 	}
 
 	_, err = p.pg.Exec(ctx, query, args...)

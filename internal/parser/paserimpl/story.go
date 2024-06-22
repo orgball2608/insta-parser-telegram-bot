@@ -6,7 +6,7 @@ import (
 	"github.com/Davincible/goinsta/v3"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
-	storyRepo "github.com/orgball2608/insta-parser-telegram-bot/internal/repository/story"
+	storyRepo "github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/story"
 	"github.com/robfig/cron/v3"
 	"strings"
 	"time"
@@ -16,7 +16,7 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
 	c := cron.New(cron.WithLocation(loc))
 	_, err := c.AddFunc("0 6,22 * * *", func() {
-		usernames := strings.Split(p.Config.Instagram.UserParse, ";")
+		usernames := strings.Split(p.Config.Instagram.UsersParse, ";")
 		for _, username := range usernames {
 			err := p.ParseUserReelStories(ctx, username)
 			if err != nil {

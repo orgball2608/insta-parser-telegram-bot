@@ -39,6 +39,7 @@ func New(opts Opts) (*pgxpool.Pool, error) {
 				}
 
 				opts.Logger.Info("Connected to postgres")
+
 				return nil
 			},
 		},
