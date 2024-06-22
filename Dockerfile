@@ -26,6 +26,7 @@ WORKDIR /app
 COPY --from=be-builder /app/build-out /app/
 COPY --from=be-builder /app/docker-entrypoint.sh /app/
 COPY --from=be-builder /app/Makefile /app/
+COPY --from=be-builder /app/migrations /app/migrations
 
 RUN chmod +x /app/docker-entrypoint.sh
 
