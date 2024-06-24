@@ -14,9 +14,12 @@ func (i *InstaImpl) Login() error {
 
 		i.logger.Info("Successfully logged in by username and password")
 
-		if err := i.client.Export("./goinsta-session"); err != nil {
-			i.logger.Error("Couldn't save the session", "Error", err)
-		}
+		defer func(client *goinsta.Instagram, path string) {
+			err := client.Export(path)
+			if err != nil {
+				i.logger.Error("Couldn't save the session", "Error", err)
+			}
+		}(i.client, "./goinsta-session")
 	}
 
 	i.logger.Info("Login by session success")

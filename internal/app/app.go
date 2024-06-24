@@ -19,6 +19,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
 	"github.com/pressly/goose/v3"
 	"go.uber.org/fx"
+	"net/http"
 	"os"
 	"path/filepath"
 )
@@ -68,10 +69,6 @@ var App = fx.Options(
 				return err
 			}
 
-			if c.App.Env == "production" {
-				return goose.Up(db, filepath.Join(wd, "migrations"))
-			}
-
 			return goose.Up(db, filepath.Join(wd, "migrations"))
 		}),
 	fx.Invoke(run),
@@ -81,8 +78,10 @@ func run(lc fx.Lifecycle, logger logger.Logger, telegram telegram.Client,
 	instagram instagram.Client, parser parser.Client, command command.Client) {
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
+
+			go startHttpServer(logger)
+
 			ctx := context.Background()
-			logger.Info("Instagram value", instagram)
 			err := instagram.Login()
 			if err != nil {
 				logger.Error("Instagram login error", "Error", err)
@@ -107,4 +106,23 @@ func run(lc fx.Lifecycle, logger logger.Logger, telegram telegram.Client,
 			return nil
 		},
 	})
+}
+
+func startHttpServer(l logger.Logger) {
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		healthCheckHandler(w, r, l)
+	})
+	l.Info("Starting health check server on :8080")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		l.Error("Health check server failed to start: %v", err)
+	}
+}
+
+func healthCheckHandler(w http.ResponseWriter, r *http.Request, logger logger.Logger) {
+	logger.Info("Health check request received", "Method", r.Method, "URL", r.URL.String())
+	w.Header().Set("Content-Type", "text/plain")
+	if _, err := w.Write([]byte("ok")); err != nil {
+		logger.Error("Failed to write response", "Error", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
