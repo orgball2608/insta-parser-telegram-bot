@@ -74,24 +74,24 @@ var App = fx.Options(
 	fx.Invoke(run),
 )
 
-func run(lc fx.Lifecycle, logger logger.Logger, telegram telegram.Client,
-	instagram instagram.Client, parser parser.Client, command command.Client) {
+func run(lc fx.Lifecycle, log logger.Logger, cfg *config.Config, tgClient telegram.Client,
+	igClient instagram.Client, pClient parser.Client, cmdClient command.Client) {
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 
-			go startHttpServer(logger)
+			go startHttpServer(log, cfg)
 
 			ctx := context.Background()
-			err := instagram.Login()
+			err := igClient.Login()
 			if err != nil {
-				logger.Error("Instagram login error", "Error", err)
-				telegram.SendMessageToUser("Instagram login error:" + err.Error())
+				log.Error("Instagram login error", "Error", err)
+				tgClient.SendMessageToUser("Instagram login error:" + err.Error())
 			}
 
-			err = parser.ScheduleParseStories(ctx)
+			err = pClient.ScheduleParseStories(ctx)
 			if err != nil {
-				logger.Error("Parse stories error", "Error", err)
-				telegram.SendMessageToUser("Parse stories error:" + err.Error())
+				log.Error("Parse stories error", "Error", err)
+				tgClient.SendMessageToUser("Parse stories error:" + err.Error())
 			}
 
 			//go func() {
@@ -108,13 +108,15 @@ func run(lc fx.Lifecycle, logger logger.Logger, telegram telegram.Client,
 	})
 }
 
-func startHttpServer(l logger.Logger) {
+func startHttpServer(log logger.Logger, cfg *config.Config) {
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		healthCheckHandler(w, r, l)
+		healthCheckHandler(w, r, log)
 	})
-	l.Info("Starting health check server on :8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		l.Error("Health check server failed to start: %v", err)
+
+	log.Info(fmt.Sprintf("Starting server on :%d", cfg.App.Port))
+
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.App.Port), nil); err != nil {
+		log.Error("Server failed to start: %v", err)
 	}
 }
 

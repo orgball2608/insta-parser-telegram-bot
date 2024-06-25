@@ -4,37 +4,36 @@ import (
 	"github.com/Davincible/goinsta/v3"
 )
 
-func (i *InstaImpl) Login() error {
-	if err := i.ReloadSession(); err != nil {
-		err := i.client.Login()
+func (ig *IgImpl) Login() error {
+	if err := ig.ReloadSession(); err != nil {
+		err := ig.Client.Login()
 		if err != nil {
-			i.logger.Error("Login error", "Error", err)
+			ig.Logger.Error("Login error", "Error", err)
 			return err
 		}
 
-		i.logger.Info("Successfully logged in by username and password")
+		ig.Logger.Info("Successfully logged in by username and password")
 
 		defer func(client *goinsta.Instagram, path string) {
 			err := client.Export(path)
 			if err != nil {
-				i.logger.Error("Couldn't save the session", "Error", err)
+				ig.Logger.Error("Couldn't save the session", "Error", err)
 			}
-		}(i.client, "./goinsta-session")
+		}(ig.Client, ig.Config.Instagram.SessionPath)
 	}
 
-	i.logger.Info("Login by session success")
 	return nil
 }
 
-func (i *InstaImpl) ReloadSession() error {
-	instagram, err := goinsta.Import("./goinsta-session")
+func (ig *IgImpl) ReloadSession() error {
+	instagram, err := goinsta.Import(ig.Config.Instagram.SessionPath)
 	if err != nil {
-		i.logger.Error("Couldn't recover the session", "Error", err)
+		ig.Logger.Error("Couldn't recover the session", "Error", err)
 		return err
 	}
 
-	i.client = instagram
+	ig.Client = instagram
 
-	i.logger.Info("Successfully logged in by session")
+	ig.Logger.Info("Successfully logged in by session")
 	return nil
 }

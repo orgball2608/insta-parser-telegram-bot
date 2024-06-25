@@ -10,7 +10,7 @@ import (
 	"go.uber.org/fx"
 )
 
-type ParserImplOpts struct {
+type Opts struct {
 	fx.In
 
 	Instagram instagram.Client
@@ -28,7 +28,7 @@ type ParserImpl struct {
 	Config    *config.Config
 }
 
-func New(opts ParserImplOpts) *ParserImpl {
+func New(opts Opts) *ParserImpl {
 	return &ParserImpl{
 		Instagram: opts.Instagram,
 		Telegram:  opts.Telegram,

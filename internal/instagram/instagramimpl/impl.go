@@ -8,25 +8,27 @@ import (
 	"go.uber.org/fx"
 )
 
-type InstaImpl struct {
-	client *goinsta.Instagram
-	logger logger.Logger
+type IgImpl struct {
+	Client *goinsta.Instagram
+	Logger logger.Logger
+	Config *config.Config
 }
 
-type UserImplOpts struct {
+type Opts struct {
 	fx.In
 
 	Config *config.Config
 	Logger logger.Logger
 }
 
-func New(opts UserImplOpts) *InstaImpl {
+func New(opts Opts) *IgImpl {
 	client := goinsta.New(opts.Config.Instagram.User, opts.Config.Instagram.Pass)
 
-	return &InstaImpl{
-		client: client,
-		logger: opts.Logger,
+	return &IgImpl{
+		Client: client,
+		Logger: opts.Logger,
+		Config: opts.Config,
 	}
 }
 
-var _ instagram.Client = (*InstaImpl)(nil)
+var _ instagram.Client = (*IgImpl)(nil)

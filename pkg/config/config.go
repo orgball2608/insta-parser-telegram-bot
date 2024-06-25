@@ -9,7 +9,8 @@ import (
 
 type Config struct {
 	App struct {
-		Env string `env:"APP_ENV" env-default:"development"`
+		Env  string `env:"APP_ENV" env-default:"development"`
+		Port int    `env:"APP_PORT" env-default:"8080"`
 	}
 	Postgres struct {
 		Port    int    `env:"POSTGRES_PORT"`
@@ -25,9 +26,10 @@ type Config struct {
 		Channel string `env:"TELEGRAM_CHANNEL"`
 	}
 	Instagram struct {
-		User       string `env:"INSTAGRAM_USER"`
-		Pass       string `env:"INSTAGRAM_PASS"`
-		UsersParse string `env:"INSTAGRAM_USERS_PARSE"`
+		User        string `env:"INSTAGRAM_USER"`
+		Pass        string `env:"INSTAGRAM_PASS"`
+		SessionPath string `env:"INSTAGRAM_SESSION_PATH" env-default:"./goinsta-session"`
+		UsersParse  string `env:"INSTAGRAM_USERS_PARSE"`
 	}
 }
 

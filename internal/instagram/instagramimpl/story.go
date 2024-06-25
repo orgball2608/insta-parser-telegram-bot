@@ -4,11 +4,11 @@ import (
 	"github.com/Davincible/goinsta/v3"
 )
 
-func (i *InstaImpl) GetUserStories(userName string) ([]*goinsta.Item, error) {
-	i.logger.Info("Get stories for username", "userName", userName)
-	profile, err := i.client.VisitProfile(userName)
+func (ig *IgImpl) GetUserStories(userName string) ([]*goinsta.Item, error) {
+	ig.Logger.Info("Get stories for username", "userName", userName)
+	profile, err := ig.Client.VisitProfile(userName)
 	if err != nil {
-		i.logger.Error("Visit profile error", "Error", err)
+		ig.Logger.Error("Visit profile error", "Error", err)
 		return nil, err
 	}
 
@@ -17,11 +17,11 @@ func (i *InstaImpl) GetUserStories(userName string) ([]*goinsta.Item, error) {
 	return stories.Items, nil
 }
 
-func (i *InstaImpl) GetUserHighlights(userName string) ([]*goinsta.Reel, error) {
-	i.logger.Info("Get stories", "userName", userName)
-	profile, err := i.client.VisitProfile(userName)
+func (ig *IgImpl) GetUserHighlights(userName string) ([]*goinsta.Reel, error) {
+	ig.Logger.Info("Get stories", "userName", userName)
+	profile, err := ig.Client.VisitProfile(userName)
 	if err != nil {
-		i.logger.Error("Visit profile error", "Error", err)
+		ig.Logger.Error("Visit profile error", "Error", err)
 		return nil, err
 	}
 

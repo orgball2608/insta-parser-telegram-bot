@@ -16,9 +16,9 @@ type Opts struct {
 }
 
 type TelegramImpl struct {
-	tgBot  *tgbotapi.BotAPI
-	logger logger.Logger
-	config *config.Config
+	TgBot  *tgbotapi.BotAPI
+	Logger logger.Logger
+	Config *config.Config
 }
 
 func New(opts Opts) (*TelegramImpl, error) {
@@ -29,9 +29,9 @@ func New(opts Opts) (*TelegramImpl, error) {
 	}
 
 	return &TelegramImpl{
-		tgBot:  tgBot,
-		logger: opts.Logger,
-		config: opts.Config,
+		TgBot:  tgBot,
+		Logger: opts.Logger,
+		Config: opts.Config,
 	}, nil
 }
 
