@@ -9,8 +9,9 @@ import (
 
 type Config struct {
 	App struct {
-		Env  string `env:"APP_ENV" env-default:"development"`
-		Port int    `env:"APP_PORT" env-default:"8080"`
+		Env       string `env:"APP_ENV" env-default:"development"`
+		Port      int    `env:"APP_PORT" env-default:"8080"`
+		SentryUrl string `env:"SENTRY_URL"`
 	}
 	Postgres struct {
 		Port    int    `env:"POSTGRES_PORT"`

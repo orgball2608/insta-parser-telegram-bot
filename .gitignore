@@ -9,4 +9,5 @@ coverage.out
 .DS_Store
 build-out*
 .env
-!/tmp/
+build-errors.log
+/tmp/

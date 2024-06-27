@@ -1,18 +1,18 @@
 module github.com/orgball2608/insta-parser-telegram-bot
 
-go 1.21
+go 1.22.4
 
 require (
 	github.com/Davincible/goinsta/v3 v3.2.6
 	github.com/Masterminds/squirrel v1.5.4
-	github.com/getsentry/sentry-go v0.27.0
+	github.com/getsentry/sentry-go v0.28.1
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/lib/pq v1.10.9
 	github.com/pressly/goose/v3 v3.21.1
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/rs/zerolog v1.32.0
+	github.com/rs/zerolog v1.33.0
 	github.com/samber/slog-multi v1.0.2
 	github.com/samber/slog-sentry/v2 v2.4.2
 	github.com/samber/slog-zerolog/v2 v2.2.2
