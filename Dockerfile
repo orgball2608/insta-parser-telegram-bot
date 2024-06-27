@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine3.19 AS be-builder
+FROM golang:1.22.4-alpine3.19 AS be-builder
 ARG BE_PATH
 RUN echo "BE_PATH ${BE_PATH}"
 ENV GO111MODULE=on
