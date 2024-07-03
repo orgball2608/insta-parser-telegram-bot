@@ -137,6 +137,18 @@ func startBot(lc fx.Lifecycle, log logger.Logger, tgClient telegram.Client,
 				tgClient.SendMessageToUser("Parse stories error:" + err.Error())
 			}
 
+			//data, err := igClient.GetUserHighlights("ally_nkt89")
+			//
+			//if err != nil {
+			//	log.Error("Instagram GetUserHighlights error", "Error", err)
+			//}
+			//
+			//log.Info("get highlights data", "data", &data[len(data)-1])
+
+			//for _, story := range data {
+			//	log.Info("get highlights data", "data", story.Title)
+			//}
+
 			//go func() {
 			//	for {
 			//		if err := command.HandleCommand(); err != nil {

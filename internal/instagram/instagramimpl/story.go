@@ -5,7 +5,7 @@ import (
 )
 
 func (ig *IgImpl) GetUserStories(userName string) ([]*goinsta.Item, error) {
-	ig.Logger.Info("Get stories for username", "userName", userName)
+	ig.Logger.Info("Get stories for username", "username", userName)
 	profile, err := ig.Client.VisitProfile(userName)
 	if err != nil {
 		ig.Logger.Error("Visit profile error", "Error", err)
@@ -18,7 +18,7 @@ func (ig *IgImpl) GetUserStories(userName string) ([]*goinsta.Item, error) {
 }
 
 func (ig *IgImpl) GetUserHighlights(userName string) ([]*goinsta.Reel, error) {
-	ig.Logger.Info("Get stories", "userName", userName)
+	ig.Logger.Info("Get stories highlights", "username", userName)
 	profile, err := ig.Client.VisitProfile(userName)
 	if err != nil {
 		ig.Logger.Error("Visit profile error", "Error", err)

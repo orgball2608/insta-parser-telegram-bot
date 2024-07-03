@@ -9,4 +9,5 @@ type Client interface {
 	GetUpdatesChan(u tgbotapi.UpdateConfig) (tgbotapi.UpdatesChannel, error)
 	SendMessageToUser(message string)
 	SendMessageToChanel(msg string)
+	SendImageToChanelByUrl(url string)
 }

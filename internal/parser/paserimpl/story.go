@@ -50,7 +50,7 @@ func (p *ParserImpl) ParseUserReelStories(ctx context.Context, username string) 
 		_, err := p.StoryRepo.GetByStoryID(ctx, storyID)
 
 		if err == nil {
-			p.Logger.Info("Stories already sent")
+			p.Logger.Info("Story already sent")
 			continue
 		}
 
@@ -82,6 +82,10 @@ func (p *ParserImpl) ParseUserReelStories(ctx context.Context, username string) 
 		}
 
 		p.Telegram.SendMessageToChanel("New stories from " + username)
+
+		imageUrl := story.Images.GetBest()
+
+		p.Telegram.SendImageToChanelByUrl(imageUrl)
 
 		if err := p.Telegram.SendFileToChannel(mediaBytes, story.MediaType); err != nil {
 			p.Logger.Error("Error send media to channel", "Error", err)

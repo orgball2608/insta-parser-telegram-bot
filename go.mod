@@ -13,10 +13,10 @@ require (
 	github.com/pressly/goose/v3 v3.21.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/zerolog v1.33.0
-	github.com/samber/slog-multi v1.0.2
-	github.com/samber/slog-sentry/v2 v2.4.2
-	github.com/samber/slog-zerolog/v2 v2.2.2
-	go.uber.org/fx v1.22.0
+	github.com/samber/slog-multi v1.1.0
+	github.com/samber/slog-sentry/v2 v2.5.0
+	github.com/samber/slog-zerolog/v2 v2.4.0
+	go.uber.org/fx v1.22.1
 	go.uber.org/mock v0.4.0
 )
 
@@ -42,7 +42,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/samber/lo v1.39.0 // indirect
-	github.com/samber/slog-common v0.15.2 // indirect
+	github.com/samber/slog-common v0.16.0 // indirect
 	github.com/sethvargo/go-retry v0.2.4 // indirect
 	go.uber.org/dig v1.17.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
