@@ -1,4 +1,4 @@
-name: Docker Image CI
+name: Build and push
 
 on:
   push:
@@ -10,7 +10,16 @@ env:
   IMAGE_NAME: ${{ vars.IMAGE_NAME }}
 
 jobs:
-  docker:
+  container-security-check:
+    name: container-security-check
+    if: "! contains(toJSON(github.event.commits.*.message), '[skip-docker]')"
+    uses: ./.github/workflows/container_security_check.yml
+    secrets: inherit
+    with:
+      image-name: ${{ github.event.repository.name }}
+
+  build-and-push:
+    needs: container-security-check
     if: "! contains(toJSON(github.event.commits.*.message), '[skip-docker]')"
     runs-on: ubuntu-latest
     steps:
