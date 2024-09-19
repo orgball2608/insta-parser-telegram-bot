@@ -3,35 +3,46 @@ package paserimpl
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/Davincible/goinsta/v3"
+	"github.com/go-co-op/gocron/v2"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	storyRepo "github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/story"
-	"github.com/robfig/cron/v3"
 	"strings"
 	"time"
 )
 
 func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 	loc, _ := time.LoadLocation("Asia/Ho_Chi_Minh")
-	c := cron.New(cron.WithLocation(loc))
-	_, err := c.AddFunc("0 6,22 * * *", func() {
-		usernames := strings.Split(p.Config.Instagram.UsersParse, ";")
-		for _, username := range usernames {
-			err := p.ParseUserReelStories(ctx, username)
-			if err != nil {
-				p.Logger.Error("Parser error", "Error", err)
-				p.Telegram.SendMessageToUser("parser error:" + err.Error())
-			}
-		}
-	})
-
+	s, err := gocron.NewScheduler(gocron.WithLocation(loc))
 	if err != nil {
-		p.Logger.Error("Add cron job fail", "Error", err)
-		return err
+		return fmt.Errorf("new scheduler: %w", err)
 	}
 
-	c.Start()
+	_, err = s.NewJob(
+		gocron.DurationRandomJob(
+			time.Hour*1,
+			time.Hour*6,
+		),
+		gocron.NewTask(
+			func() {
+				usernames := strings.Split(p.Config.Instagram.UsersParse, ";")
+				for _, username := range usernames {
+					err := p.ParseUserReelStories(ctx, username)
+					if err != nil {
+						p.Logger.Error("Parser error", "Error", err)
+						p.Telegram.SendMessageToUser("parser error:" + err.Error())
+					}
+				}
+			},
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("start new job: %w", err)
+	}
+
+	s.Start()
 	return nil
 }
 
