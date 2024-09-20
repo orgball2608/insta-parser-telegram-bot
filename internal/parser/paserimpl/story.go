@@ -23,7 +23,7 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 	_, err = s.NewJob(
 		gocron.DurationRandomJob(
 			time.Hour*1,
-			time.Hour*6,
+			time.Hour*24,
 		),
 		gocron.NewTask(
 			func() {
