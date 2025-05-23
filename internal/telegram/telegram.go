@@ -10,4 +10,6 @@ type Client interface {
 	SendMessageToUser(message string)
 	SendMessageToChanel(msg string)
 	SendImageToChanelByUrl(url string)
+	// SendMessage sends a message to a specific chat ID and returns message ID and error
+	SendMessage(chatID int64, text string) (int, error)
 }
