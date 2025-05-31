@@ -12,7 +12,7 @@ type Config struct {
 	App       AppConfig       `envPrefix:"APP_"`
 	Telegram  TelegramConfig  `envPrefix:"TELEGRAM_"`
 	Instagram InstagramConfig `envPrefix:"INSTAGRAM_"`
-	Postgres  PostgresConfig  `envPrefix:"DB_"`
+	Postgres  PostgresConfig  `envPrefix:"POSTGRES_"`
 	Redis     RedisConfig     `envPrefix:"REDIS_"`
 }
 
