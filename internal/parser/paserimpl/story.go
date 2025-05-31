@@ -353,3 +353,52 @@ func (p *ParserImpl) downloadAndSendMedia(url string, mediaType int) error {
 
 	return nil
 }
+
+// SaveHighlight saves a highlight to the repository
+func (p *ParserImpl) SaveHighlight(highlight domain.Highlights) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	p.Logger.Info("Saving highlight",
+		"username", highlight.UserName,
+		"mediaURL", highlight.MediaURL)
+
+	err := p.HighlightsRepo.Create(ctx, highlight)
+	if err != nil {
+		return fmt.Errorf("failed to save highlight: %w", err)
+	}
+
+	return nil
+}
+
+// SaveCurrentStory saves a current story to the repository
+func (p *ParserImpl) SaveCurrentStory(currentStory domain.CurrentStory) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	p.Logger.Info("Saving current story",
+		"username", currentStory.UserName,
+		"mediaURL", currentStory.MediaURL)
+
+	err := p.CurrentStoryRepo.Create(ctx, currentStory)
+	if err != nil {
+		return fmt.Errorf("failed to save current story: %w", err)
+	}
+
+	return nil
+}
+
+// ClearCurrentStories removes all current stories for a username
+func (p *ParserImpl) ClearCurrentStories(username string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	p.Logger.Info("Clearing current stories for user", "username", username)
+
+	err := p.CurrentStoryRepo.DeleteByUserName(ctx, username)
+	if err != nil {
+		return fmt.Errorf("failed to clear current stories for %s: %w", username, err)
+	}
+
+	return nil
+}
