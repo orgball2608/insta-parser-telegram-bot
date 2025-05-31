@@ -24,6 +24,7 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.2.1 // indirect
+	github.com/caarlos0/env/v9 v9.0.0 // indirect
 	github.com/chromedp/cdproto v0.0.0-20220901095120-1a01299a2163 // indirect
 	github.com/chromedp/chromedp v0.8.5 // indirect
 	github.com/chromedp/sysutil v1.0.0 // indirect

@@ -22,7 +22,7 @@ type Opts struct {
 }
 
 func New(opts Opts) *IgImpl {
-	client := goinsta.New(opts.Config.Instagram.User, opts.Config.Instagram.Pass)
+	client := goinsta.New(opts.Config.Instagram.Username, opts.Config.Instagram.Password)
 
 	return &IgImpl{
 		Client: client,

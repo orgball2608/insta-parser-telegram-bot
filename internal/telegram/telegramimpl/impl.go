@@ -22,7 +22,7 @@ type TelegramImpl struct {
 }
 
 func New(opts Opts) (*TelegramImpl, error) {
-	tgBot, err := tgbotapi.NewBotAPI(opts.Config.Telegram.Token)
+	tgBot, err := tgbotapi.NewBotAPI(opts.Config.Telegram.BotToken)
 	if err != nil {
 		opts.Logger.Error("Error creating bot", "Error", err)
 		return nil, err

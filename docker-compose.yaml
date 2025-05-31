@@ -1,29 +1,51 @@
 version: '3.8'
+
 services:
   app:
-    image: waang07/instagram-notifier:latest
-    restart: always
-    networks:
-      - app-tier
-    env_file:
-      - ./.env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: insta-parser-bot
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - INSTAGRAM_USERNAME=${INSTAGRAM_USERNAME}
+      - INSTAGRAM_PASSWORD=${INSTAGRAM_PASSWORD}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - DB_NAME=${DB_NAME:-insta_parser}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - postgres
+      - redis
 
   postgres:
-    image: postgres:15
-    ports:
-      - "54326:5432"
+    image: postgres:16-alpine
+    container_name: insta-parser-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: test
-      POSTGRES_PASSWORD: test
-      POSTGRES_DB: test
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${DB_NAME:-insta_parser}
+    ports:
+      - "5432:5432"
     volumes:
-      - postgres:/var/lib/postgresql/data
-    networks:
-        - app-tier
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: insta-parser-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
 
 volumes:
-  postgres:
-
-networks:
-  app-tier:
-    driver: bridge
+  postgres_data:
+  redis_data:

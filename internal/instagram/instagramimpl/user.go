@@ -3,9 +3,10 @@ package instagramimpl
 import (
 	"context"
 	"fmt"
-	"github.com/Davincible/goinsta/v3"
 	"os"
 	"time"
+
+	"github.com/Davincible/goinsta/v3"
 )
 
 // Login attempts to connect to Instagram, first trying to load from an existing session,
@@ -25,7 +26,7 @@ func (ig *IgImpl) Login() error {
 	ig.Logger.Info("Attempting to log in with credentials")
 
 	// Create a fresh Instagram client with credentials
-	ig.Client = goinsta.New(ig.Config.Instagram.User, ig.Config.Instagram.Pass)
+	ig.Client = goinsta.New(ig.Config.Instagram.Username, ig.Config.Instagram.Password)
 
 	// Add retry logic for login
 	var loginErr error
@@ -139,4 +140,12 @@ func (ig *IgImpl) saveSession() error {
 	ig.Logger.Info("Instagram session saved successfully",
 		"path", ig.Config.Instagram.SessionPath)
 	return nil
+}
+
+func (ig *IgImpl) VisitProfile(username string) (*goinsta.User, error) {
+	user, err := ig.Client.Profiles.ByName(username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get profile %s: %w", username, err)
+	}
+	return user, nil
 }

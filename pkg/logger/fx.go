@@ -19,7 +19,7 @@ var FxOption = fx.Annotate(
 
 		return New(
 			Opts{
-				Env:    cfg.App.Env,
+				Env:    cfg.App.Environment,
 				Sentry: client,
 			},
 		)

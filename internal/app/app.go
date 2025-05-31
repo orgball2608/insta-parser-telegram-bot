@@ -4,6 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
+
 	_ "github.com/lib/pq"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/command"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/command/commandimpl"
@@ -19,25 +26,25 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/pgx"
 	"github.com/pressly/goose/v3"
 	"go.uber.org/fx"
-	"net/http"
-	"os"
-	"path/filepath"
 )
 
-var App = fx.Options(
+var Module = fx.Options(
 	fx.Provide(
 		config.New,
 		logger.FxOption,
 		pgx.New,
+		newHTTPServer,
 	),
 	fx.Provide(
 		fx.Annotate(
 			telegramimpl.New,
 			fx.As(new(telegram.Client)),
-		), fx.Annotate(
+		),
+		fx.Annotate(
 			instagramimpl.New,
 			fx.As(new(instagram.Client)),
-		), fx.Annotate(
+		),
+		fx.Annotate(
 			paserimpl.New,
 			fx.As(new(parser.Client)),
 		),
@@ -47,118 +54,136 @@ var App = fx.Options(
 		),
 	),
 	repositories.Module,
-	fx.Invoke(pgx.New),
-	fx.Invoke(initMigration),
-	fx.Invoke(startHttpServer),
-	fx.Invoke(startBot),
+	fx.Invoke(runMigrations),
+	fx.Invoke(registerHTTPRoutes),
+	fx.Invoke(startServices),
 )
 
-func initMigration(log logger.Logger, c *config.Config) error {
-	if err := goose.SetDialect("pgx"); err != nil {
-		return err
+type HTTPServer struct {
+	server *http.Server
+	log    logger.Logger
+}
+
+func newHTTPServer(log logger.Logger, cfg *config.Config) *HTTPServer {
+	return &HTTPServer{
+		server: &http.Server{
+			Addr:         fmt.Sprintf(":%d", cfg.App.Port),
+			ReadTimeout:  cfg.App.Timeout,
+			WriteTimeout: cfg.App.Timeout,
+		},
+		log: log,
+	}
+}
+
+func registerHTTPRoutes(server *HTTPServer) {
+	router := http.NewServeMux()
+	router.HandleFunc("GET /healthz", server.healthCheckHandler)
+	server.server.Handler = router
+}
+
+func (s *HTTPServer) healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	s.log.Info("Health check request received", "method", r.Method, "url", r.URL.String())
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+func runMigrations(log logger.Logger, cfg *config.Config) error {
+	if err := goose.SetDialect("postgres"); err != nil {
+		return fmt.Errorf("failed to set dialect: %w", err)
 	}
 
-	db, err := sql.Open("postgres",
-		fmt.Sprintf("dbname=%s user=%s password=%s host=%s port=%d sslmode=%s ",
-			c.Postgres.Name, c.Postgres.User, c.Postgres.Pass, c.Postgres.Host, c.Postgres.Port, c.Postgres.SslMode,
-		),
-	)
+	db, err := sql.Open("postgres", cfg.GetDSN())
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to connect to database: %w", err)
 	}
-	defer func(db *sql.DB) {
-		err := db.Close()
-		if err != nil {
-			log.Error("Failed to close db", "error", err)
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Error("Failed to close database connection", "error", err)
 		}
-	}(db)
+	}()
 
 	wd, err := os.Getwd()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	return goose.Up(db, filepath.Join(wd, "migrations"))
+	if err := goose.Up(db, filepath.Join(wd, "migrations")); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	return nil
 }
 
-func startHttpServer(lc fx.Lifecycle, log logger.Logger, cfg *config.Config) {
-	router := http.NewServeMux()
-
-	router.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		healthCheckHandler(w, r, log)
-	})
-
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.App.Port),
-		Handler: router,
-	}
-
+func startServices(
+	lc fx.Lifecycle,
+	log logger.Logger,
+	server *HTTPServer,
+	tgClient telegram.Client,
+	igClient instagram.Client,
+	pClient parser.Client,
+	cmdClient command.Client,
+) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			log.Info(fmt.Sprintf("Starting server on :%d", cfg.App.Port))
+			// Start HTTP server
 			go func() {
-				err := server.ListenAndServe()
-				if err != nil {
-					log.Error("Server failed to start: %v", "error", err)
+				log.Info("Starting HTTP server", "addr", server.server.Addr)
+				if err := server.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					log.Error("HTTP server failed", "error", err)
 				}
 			}()
+
+			// Start Instagram client
+			if err := igClient.Login(); err != nil {
+				log.Error("Instagram login failed", "error", err)
+				return fmt.Errorf("instagram login failed: %w", err)
+			}
+
+			// Start parser service
+			go func() {
+				if err := pClient.ScheduleParseStories(ctx); err != nil {
+					log.Error("Story parser failed", "error", err)
+					tgClient.SendMessageToUser(fmt.Sprintf("Story parser error: %v", err))
+				}
+			}()
+
+			// Start command handler
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					default:
+						if err := cmdClient.HandleCommand(); err != nil {
+							log.Error("Command handler failed", "error", err)
+							tgClient.SendMessageToUser(fmt.Sprintf("Command error: %v", err))
+						}
+					}
+				}
+			}()
+
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			log.Info("Stopping server")
-			return server.Close()
+			log.Info("Shutting down HTTP server")
+			return server.server.Shutdown(ctx)
 		},
 	})
-}
 
-func healthCheckHandler(w http.ResponseWriter, r *http.Request, logger logger.Logger) {
-	logger.Info("Health check request received", "Method", r.Method, "URL", r.URL.String())
-	w.Header().Set("Content-Type", "text/plain")
-	if _, err := w.Write([]byte("ok")); err != nil {
-		logger.Error("Failed to write response", "Error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
+	// Handle graceful shutdown
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		sig := <-sigChan
+		log.Info("Received shutdown signal", "signal", sig)
 
-func startBot(lc fx.Lifecycle, log logger.Logger, tgClient telegram.Client,
-	igClient instagram.Client, pClient parser.Client, cmdClient command.Client) {
-	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			ctx := context.Background()
-			err := igClient.Login()
-			if err != nil {
-				log.Error("Instagram login error", "Error", err)
-				tgClient.SendMessageToUser("Instagram login error:" + err.Error())
-			}
+		// Create shutdown context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
-			err = pClient.ScheduleParseStories(ctx)
-			if err != nil {
-				log.Error("Parse stories error", "Error", err)
-				tgClient.SendMessageToUser("Parse stories error:" + err.Error())
-			}
-
-			//data, err := igClient.GetUserHighlights("ally_nkt89")
-			//
-			//if err != nil {
-			//	log.Error("Instagram GetUserHighlights error", "Error", err)
-			//}
-			//
-			//log.Info("get highlights data", "data", &data[len(data)-1])
-
-			//for _, story := range data {
-			//	log.Info("get highlights data", "data", story.Title)
-			//}
-
-			//go func() {
-			//	for {
-			//		if err := command.HandleCommand(); err != nil {
-			//			logger.Error("Command error", "Error", err)
-			//			telegram.SendMessageToUser("Command error:" + err.Error())
-			//		}
-			//	}
-			//}()
-
-			return nil
-		},
-	})
+		if err := server.server.Shutdown(ctx); err != nil {
+			log.Error("Server shutdown failed", "error", err)
+		}
+	}()
 }
