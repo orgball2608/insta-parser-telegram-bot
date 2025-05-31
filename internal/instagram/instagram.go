@@ -7,4 +7,5 @@ type Client interface {
 	ReloadSession() error
 	GetUserStories(userName string) ([]*goinsta.Item, error)
 	GetUserHighlights(userName string) ([]*goinsta.Reel, error)
+	VisitProfile(username string) (*goinsta.User, error)
 }

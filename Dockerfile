@@ -1,33 +1,52 @@
-FROM golang:1.22.4-alpine3.19 AS be-builder
-ARG BE_PATH
-RUN echo "BE_PATH ${BE_PATH}"
-ENV GO111MODULE=on
+# Build stage
+FROM golang:1.21-alpine AS builder
 
+# Install build dependencies
+RUN apk add --no-cache git make build-base
+
+# Set working directory
 WORKDIR /app
 
-RUN apk add --no-cache git curl wget upx make
+# Copy go mod files
+COPY go.mod go.sum ./
 
-COPY ${BE_PATH}go.mod ${BE_PATH}go.sum ./
-
+# Download dependencies
 RUN go mod download
 
-COPY ${BE_PATH}. .
+# Copy source code
+COPY . .
 
-RUN make build
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o app ./cmd/main.go
 
-# Start a new stage from scratch
-FROM alpine:latest
+# Final stage
+FROM alpine:3.19
 
-# RUN apk --no-cache add ca-certificates
-RUN apk --no-cache add tzdata
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates tzdata
 
+# Create non-root user
+RUN adduser -D -g '' appuser
+
+# Set working directory
 WORKDIR /app
 
-COPY --from=be-builder /app/build-out /app/
-COPY --from=be-builder /app/docker-entrypoint.sh /app/
-COPY --from=be-builder /app/Makefile /app/
-COPY --from=be-builder /app/migrations /app/migrations
+# Copy binary from builder
+COPY --from=builder /app/app .
+COPY --from=builder /app/migrations ./migrations
 
-RUN chmod +x /app/docker-entrypoint.sh
+# Copy entrypoint script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
-CMD ["sh", "/app/docker-entrypoint.sh"]
+# Set ownership to non-root user
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8080
+
+# Set entrypoint
+ENTRYPOINT ["/docker-entrypoint.sh"]

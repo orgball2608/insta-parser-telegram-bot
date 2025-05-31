@@ -3,12 +3,14 @@ package logger
 
 import (
 	"context"
-	"github.com/getsentry/sentry-go"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"runtime"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/pkgerrors"
@@ -103,4 +105,9 @@ func (c *Impl) WithComponent(name string) Logger {
 
 func (c *Impl) GetSlog() *slog.Logger {
 	return c.log
+}
+
+// Printf implements fx.Printer interface
+func (l *Impl) Printf(format string, args ...interface{}) {
+	l.Info(fmt.Sprintf(format, args...))
 }
