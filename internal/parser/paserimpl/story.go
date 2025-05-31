@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"strings"
 	"sync"
@@ -30,11 +31,11 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 		return fmt.Errorf("failed to create scheduler: %w", err)
 	}
 
-	// Lên lịch nhiệm vụ với khoảng thời gian ngẫu nhiên
+	// Lên lịch nhiệm vụ với khoảng thời gian hợp lý và ngẫu nhiên hơn
 	_, err = scheduler.NewJob(
 		gocron.DurationRandomJob(
-			time.Hour*1,
-			time.Hour*24,
+			time.Hour*3,    // Tăng khoảng thời gian tối thiểu lên 3 giờ
+			time.Hour*24*2, // Tối đa 2 ngày
 		),
 		gocron.NewTask(
 			func() {
@@ -44,40 +45,75 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 					return
 				}
 
-				// Tạo context con với timeout
-				taskCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+				// Tạo context con với timeout dài hơn để thực hiện chậm hơn
+				taskCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 				defer cancel()
 
 				usernames := strings.Split(p.Config.Instagram.UsersParse, ";")
 				p.Logger.Info("Starting scheduled story parsing", "userCount", len(usernames))
 
-				// Xử lý từng username
-				for _, username := range usernames {
+				// Xáo trộn danh sách usernames để không theo thứ tự cố định
+				shuffledUsernames := shuffleUsernames(usernames)
+
+				// Xử lý từng username với độ trễ ngẫu nhiên giữa các user
+				for i, username := range shuffledUsernames {
 					username = strings.TrimSpace(username)
 					if username == "" {
 						continue
 					}
+
+					// Thêm độ trễ ngẫu nhiên trước khi xử lý người dùng tiếp theo
+					// Trừ người dùng đầu tiên
+					if i > 0 {
+						// Ngẫu nhiên từ 10-45 giây giữa các user
+						delay := time.Duration(10+rand.Intn(35)) * time.Second
+						p.Logger.Info("Waiting before processing next user",
+							"delay", delay.String(),
+							"nextUsername", username)
+
+						select {
+						case <-taskCtx.Done():
+							p.Logger.Warn("Context cancelled during delay between users")
+							return
+						case <-time.After(delay):
+							// Tiếp tục sau khi đã đợi
+						}
+					}
+
+					// Thêm phần giả lập hành vi người dùng
+					p.simulateHumanBehavior(taskCtx, username)
 
 					p.Logger.Info("Parsing stories for user", "username", username)
 					if err := p.ParseUserReelStories(taskCtx, username); err != nil {
 						p.Logger.Error("Failed to parse stories for user",
 							"username", username,
 							"error", err)
+
+						// Không gửi thông báo lỗi ngay lập tức cho tất cả, đợi một khoảng thời gian ngẫu nhiên
+						time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
+
 						p.Telegram.SendMessageToUser(fmt.Sprintf("Failed to parse stories for %s: %s",
 							username, err.Error()))
 					} else {
 						p.Logger.Info("Successfully parsed stories for user", "username", username)
 					}
 
-					// Thêm khoảng nghỉ giữa các lần gọi API để tránh rate limiting
+					// Thêm khoảng nghỉ có độ dài ngẫu nhiên hơn giữa các lần gọi API để tránh rate limiting
+					jitter := time.Duration(rand.Intn(10)) * time.Second
+					pauseDuration := 8*time.Second + jitter
+
 					select {
 					case <-taskCtx.Done():
 						p.Logger.Warn("Context cancelled during story parsing")
 						return
-					case <-time.After(5 * time.Second):
-						// Tiếp tục với người dùng tiếp theo
+					case <-time.After(pauseDuration):
+						// Tiếp tục với người dùng tiếp theo sau khi đã đợi đủ thời gian
 					}
 				}
+
+				// Thêm độ trễ ngẫu nhiên sau khi hoàn thành chu kỳ
+				completionJitter := time.Duration(rand.Intn(60)) * time.Second
+				time.Sleep(completionJitter)
 
 				p.Logger.Info("Completed scheduled story parsing")
 			},
@@ -85,6 +121,12 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 	)
 	if err != nil {
 		return fmt.Errorf("failed to schedule story parsing: %w", err)
+	}
+
+	// Thêm một nhiệm vụ thứ hai vào thời điểm khác trong ngày để giả lập hành vi người dùng thực
+	if err := p.addCronJob(scheduler, loc); err != nil {
+		p.Logger.Warn("Failed to schedule additional parsing task", "error", err)
+		// Tiếp tục dù không thể lên lịch nhiệm vụ thứ hai
 	}
 
 	// Bắt đầu scheduler và duy trì nó chạy
@@ -102,13 +144,103 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 	return nil
 }
 
+// shuffleUsernames xáo trộn danh sách usernames để không theo thứ tự cố định
+func shuffleUsernames(usernames []string) []string {
+	// Tạo bản sao để không thay đổi slice gốc
+	result := make([]string, len(usernames))
+	copy(result, usernames)
+
+	// Sử dụng thuật toán Fisher-Yates để xáo trộn
+	rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := len(result) - 1; i > 0; i-- {
+		j := rand.Intn(i + 1)
+		result[i], result[j] = result[j], result[i]
+	}
+
+	return result
+}
+
+// simulateHumanBehavior giả lập hành vi người dùng
+func (p *ParserImpl) simulateHumanBehavior(ctx context.Context, username string) {
+	// Tạo context con với timeout
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	// Truy cập profile trước để "xem" trước khi lấy stories
+	_, err := p.Instagram.VisitProfile(username)
+	if err != nil {
+		p.Logger.Warn("Failed to visit profile during human behavior simulation",
+			"username", username,
+			"error", err)
+		return
+	}
+
+	// Đợi một khoảng thời gian ngẫu nhiên như người dùng đang xem profile
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(time.Duration(2+rand.Intn(4)) * time.Second):
+		// Tiếp tục sau khi đã "xem" profile
+	}
+
+	// Có thể thực hiện một số tác vụ đơn giản để giả lập việc xem profile
+	// thay vì cố gắng truy cập feed items
+	time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
+}
+
+// Thêm job vào lịch trình với khoảng thời gian cố định
+func (p *ParserImpl) addCronJob(scheduler gocron.Scheduler, loc *time.Location) error {
+	_, err := scheduler.NewJob(
+		gocron.DurationJob(
+			4*time.Hour, // Chạy mỗi 4 giờ
+		),
+		gocron.NewTask(
+			func() {
+				// Chọn ngẫu nhiên một số ít người dùng để kiểm tra
+				usernames := strings.Split(p.Config.Instagram.UsersParse, ";")
+				if len(usernames) == 0 {
+					return
+				}
+
+				// Chọn ngẫu nhiên 1-2 người dùng
+				maxUsers := min(2, len(usernames))
+				if maxUsers <= 0 {
+					return
+				}
+
+				numUsers := 1 + rand.Intn(maxUsers)
+
+				// Fisher-Yates shuffle
+				for i := 0; i < len(usernames); i++ {
+					j := rand.Intn(i + 1)
+					usernames[i], usernames[j] = usernames[j], usernames[i]
+				}
+
+				selectedUsers := usernames[:numUsers]
+
+				for _, username := range selectedUsers {
+					username = strings.TrimSpace(username)
+					if username == "" {
+						continue
+					}
+
+					// Thêm độ trễ ngẫu nhiên
+					time.Sleep(time.Duration(5+rand.Intn(15)) * time.Second)
+
+					taskCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+					p.simulateHumanBehavior(taskCtx, username)
+					p.ParseUserReelStories(taskCtx, username)
+					cancel()
+				}
+			},
+		),
+	)
+	return err
+}
+
 // ParseUserReelStories phân tích stories của một người dùng cụ thể
 func (p *ParserImpl) ParseUserReelStories(ctx context.Context, username string) error {
 	p.Logger.Info("Parsing reel stories", "username", username)
-
-	// Thêm context timeout để tránh phân tích quá lâu
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
 
 	// Truy cập profile Instagram
 	profile, err := p.Instagram.VisitProfile(username)
