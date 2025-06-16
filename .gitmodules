@@ -1,0 +1,3 @@
+[submodule "vendor/github.com/orgball2608/goinsta"]
+	path = vendor/github.com/orgball2608/goinsta
+	url = https://github.com/orgball2608/goinsta.git
