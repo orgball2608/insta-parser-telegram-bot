@@ -1,11 +1,10 @@
 package instagram
 
-import "github.com/Davincible/goinsta/v3"
+import (
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
+)
 
 type Client interface {
-	Login() error
-	ReloadSession() error
-	GetUserStories(userName string) ([]*goinsta.Item, error)
-	GetUserHighlights(userName string) ([]*goinsta.Reel, error)
-	VisitProfile(username string) (*goinsta.User, error)
+	GetUserStories(userName string) ([]domain.StoryItem, error)
+	GetUserHighlights(userName string) ([]domain.HighlightReel, error)
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,7 +16,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/command"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/command/commandimpl"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram/instagramimpl"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram/api_adapter"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser/paserimpl"
 	repositories "github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/fx"
@@ -41,7 +42,7 @@ var Module = fx.Options(
 			fx.As(new(telegram.Client)),
 		),
 		fx.Annotate(
-			instagramimpl.New,
+			api_adapter.New,
 			fx.As(new(instagram.Client)),
 		),
 		fx.Annotate(
@@ -120,27 +121,18 @@ func startServices(
 	log logger.Logger,
 	server *HTTPServer,
 	tgClient telegram.Client,
-	igClient instagram.Client,
 	pClient parser.Client,
 	cmdClient command.Client,
 ) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			// Start HTTP server
 			go func() {
 				log.Info("Starting HTTP server", "addr", server.server.Addr)
-				if err := server.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				if err := server.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 					log.Error("HTTP server failed", "error", err)
 				}
 			}()
 
-			// Start Instagram client
-			if err := igClient.Login(); err != nil {
-				log.Error("Instagram login failed", "error", err)
-				return fmt.Errorf("instagram login failed: %w", err)
-			}
-
-			// Start parser service
 			go func() {
 				if err := pClient.ScheduleParseStories(ctx); err != nil {
 					log.Error("Story parser failed", "error", err)
@@ -148,7 +140,6 @@ func startServices(
 				}
 			}()
 
-			// Start command handler
 			go func() {
 				for {
 					select {
@@ -171,14 +162,12 @@ func startServices(
 		},
 	})
 
-	// Handle graceful shutdown
 	go func() {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		sig := <-sigChan
 		log.Info("Received shutdown signal", "signal", sig)
 
-		// Create shutdown context with timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 

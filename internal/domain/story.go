@@ -22,3 +22,23 @@ type CurrentStory struct {
 	MediaURL  string
 	CreatedAt time.Time
 }
+
+type MediaType string
+
+const (
+	MediaTypeImage MediaType = "image"
+	MediaTypeVideo MediaType = "video"
+)
+
+type StoryItem struct {
+	ID        string
+	MediaURL  string
+	MediaType MediaType
+	TakenAt   time.Time
+	Username  string
+}
+
+type HighlightReel struct {
+	Title string
+	Items []StoryItem
+}

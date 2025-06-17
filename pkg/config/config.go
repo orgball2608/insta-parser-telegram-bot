@@ -9,11 +9,12 @@ import (
 )
 
 type Config struct {
-	App       AppConfig       `envPrefix:"APP_"`
-	Telegram  TelegramConfig  `envPrefix:"TELEGRAM_"`
-	Instagram InstagramConfig `envPrefix:"INSTAGRAM_"`
-	Postgres  PostgresConfig  `envPrefix:"POSTGRES_"`
-	Redis     RedisConfig     `envPrefix:"REDIS_"`
+	App           AppConfig           `envPrefix:"APP_"`
+	Telegram      TelegramConfig      `envPrefix:"TELEGRAM_"`
+	Instagram     InstagramConfig     `envPrefix:"INSTAGRAM_"`
+	Postgres      PostgresConfig      `envPrefix:"POSTGRES_"`
+	Redis         RedisConfig         `envPrefix:"REDIS_"`
+	ThirdPartyAPI ThirdPartyAPIConfig `envPrefix:"THIRD_PARTY_API_"`
 }
 
 type AppConfig struct {
@@ -31,10 +32,7 @@ type TelegramConfig struct {
 }
 
 type InstagramConfig struct {
-	Username    string `env:"USERNAME,required"`
-	Password    string `env:"PASSWORD,required"`
-	SessionPath string `env:"SESSION_PATH" envDefault:"./goinsta-session"`
-	UsersParse  string `env:"USERS_PARSE" envDefault:""`
+	UsersParse string `env:"USERS_PARSE" envDefault:""`
 }
 
 type PostgresConfig struct {
@@ -54,9 +52,13 @@ type RedisConfig struct {
 	DB       int    `env:"DB" envDefault:"0"`
 }
 
+type ThirdPartyAPIConfig struct {
+	BaseURL string `env:"BASE_URL,required"`
+	APIKey  string `env:"API_KEY,required"`
+}
+
 func New() (*Config, error) {
 	if err := godotenv.Load(); err != nil {
-		// It's ok if .env doesn't exist
 		fmt.Printf("Warning: .env file not found: %v\n", err)
 	}
 

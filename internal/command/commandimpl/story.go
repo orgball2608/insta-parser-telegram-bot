@@ -10,7 +10,6 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 )
 
-// HandleCommand processes incoming Telegram commands
 func (c *CommandImpl) HandleCommand() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -41,7 +40,6 @@ func (c *CommandImpl) HandleCommand() error {
 					"command", update.Message.Command(),
 					"error", err)
 
-				// Send error message to user
 				_, _ = c.Telegram.SendMessage(update.Message.Chat.ID,
 					fmt.Sprintf("Error: %s", err.Error()))
 			}
@@ -51,7 +49,6 @@ func (c *CommandImpl) HandleCommand() error {
 	return nil
 }
 
-// processCommand handles individual commands from updates
 func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update) error {
 	command := update.Message.Command()
 
@@ -60,7 +57,6 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 		return c.handleStoryCommand(ctx, update)
 	case "highlights":
 		return c.handleHighlightsCommand(ctx, update)
-	// Add other commands here
 	default:
 		_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
 			"Unknown command. Available commands:\n"+
@@ -70,9 +66,7 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 	}
 }
 
-// handleStoryCommand processes the /story command (formerly currentstory)
 func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Update) error {
-	// Extract username from command
 	args := strings.TrimSpace(strings.TrimPrefix(update.Message.Text, "/story"))
 	userName := strings.TrimSpace(args)
 
@@ -82,18 +76,15 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 		return err
 	}
 
-	// Send initial response
 	_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
 		fmt.Sprintf("Getting current stories for user: %s...", userName))
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
 
-	// Set timeout for story fetching
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Get current user stories
 	stories, err := c.Instagram.GetUserStories(userName)
 	if err != nil {
 		return fmt.Errorf("failed to get stories for %s: %w", userName, err)
@@ -107,62 +98,44 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 		return err
 	}
 
-	// Clear previous current stories for this user
 	if err := c.Parser.ClearCurrentStories(userName); err != nil {
 		c.Logger.Error("Error clearing current stories", "error", err)
-		// Continue processing even if clearing fails
 	}
 
 	processedCount := 0
 
-	// Process each story and save to the CurrentStory repository
 	for _, item := range stories {
-		// Add cancellation check
 		select {
 		case <-ctxWithTimeout.Done():
 			return fmt.Errorf("operation timed out")
 		default:
-			// Store media URL
-			var mediaURL string
-			if len(item.Videos) > 0 {
-				mediaURL = item.Videos[0].URL
-			} else if len(item.Images.Versions) > 0 {
-				mediaURL = item.Images.Versions[0].URL
-			}
-
-			if mediaURL == "" {
+			if item.MediaURL == "" {
 				continue
 			}
 
-			// Create a CurrentStory entity
 			currentStory := domain.CurrentStory{
 				UserName:  userName,
-				MediaURL:  mediaURL,
+				MediaURL:  item.MediaURL,
 				CreatedAt: time.Now(),
 			}
 
-			// Save to repository
 			if err := c.Parser.SaveCurrentStory(currentStory); err != nil {
 				c.Logger.Error("Error saving current story", "error", err)
 				continue
 			}
 
-			// Send media to Telegram
-			c.Telegram.SendImageToChanelByUrl(mediaURL)
+			c.Telegram.SendImageToChanelByUrl(item.MediaURL)
 			processedCount++
 		}
 	}
 
-	// Send a completion message
 	_, err = c.Telegram.SendMessage(update.Message.Chat.ID,
 		fmt.Sprintf("Processed %d current stories for %s", processedCount, userName))
 
 	return err
 }
 
-// handleHighlightsCommand processes the /highlights command
 func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbotapi.Update) error {
-	// Extract username from command
 	args := strings.TrimSpace(strings.TrimPrefix(update.Message.Text, "/highlights"))
 	userName := strings.TrimSpace(args)
 
@@ -172,18 +145,15 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 		return err
 	}
 
-	// Send initial response
 	_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
 		fmt.Sprintf("Getting highlights for user: %s...", userName))
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
 
-	// Set timeout for highlight fetching
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Get user highlights
 	highlights, err := c.Instagram.GetUserHighlights(userName)
 	if err != nil {
 		return fmt.Errorf("failed to get highlights for %s: %w", userName, err)
@@ -199,54 +169,39 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 
 	processedCount := 0
 
-	// Process each highlight and save to the Highlights repository
-	for _, highlight := range highlights {
-		c.Logger.Info("Processing highlight", "title", highlight.Title, "items", len(highlight.Items))
+	for _, highlightReel := range highlights {
+		c.Logger.Info("Processing highlight", "title", highlightReel.Title, "items", len(highlightReel.Items))
 
-		if len(highlight.Items) == 0 {
+		if len(highlightReel.Items) == 0 {
 			continue
 		}
 
-		// Add cancellation check
 		select {
 		case <-ctxWithTimeout.Done():
 			return fmt.Errorf("operation timed out")
 		default:
-			// Process each item in the highlight
-			for _, item := range highlight.Items {
-				// Store media URL
-				var mediaURL string
-				if len(item.Videos) > 0 {
-					mediaURL = item.Videos[0].URL
-				} else if len(item.Images.Versions) > 0 {
-					mediaURL = item.Images.Versions[0].URL
-				}
-
-				if mediaURL == "" {
+			for _, item := range highlightReel.Items {
+				if item.MediaURL == "" {
 					continue
 				}
 
-				// Create a Highlights entity
 				highlightItem := domain.Highlights{
 					UserName:  userName,
-					MediaURL:  mediaURL,
+					MediaURL:  item.MediaURL,
 					CreatedAt: time.Now(),
 				}
 
-				// Save to repository
 				if err := c.Parser.SaveHighlight(highlightItem); err != nil {
 					c.Logger.Error("Error saving highlight", "error", err)
 					continue
 				}
 
-				// Send media to Telegram
-				c.Telegram.SendImageToChanelByUrl(mediaURL)
+				c.Telegram.SendImageToChanelByUrl(item.MediaURL)
 				processedCount++
 			}
 		}
 	}
 
-	// Send a completion message
 	_, err = c.Telegram.SendMessage(update.Message.Chat.ID,
 		fmt.Sprintf("Processed %d highlight items for %s", processedCount, userName))
 
