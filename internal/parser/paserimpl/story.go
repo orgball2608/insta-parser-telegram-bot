@@ -132,7 +132,7 @@ func (p *ParserImpl) ProcessStories(stories []domain.StoryItem) error {
 		return nil
 	}
 
-	semaphore := make(chan struct{}, 5)
+	semaphore := make(chan struct{}, 3)
 	var wg sync.WaitGroup
 	var errsMutex sync.Mutex
 	var errs []error
@@ -236,21 +236,33 @@ func (p *ParserImpl) processStoryItem(item domain.StoryItem) error {
 		return fmt.Errorf("failed to save story: %w", err)
 	}
 
-	mediaType := 1 // 1 for photo
+	mediaType := 1
 	if item.MediaType == domain.MediaTypeVideo {
-		mediaType = 2 // 2 for video
+		mediaType = 2
 	}
 
 	p.Logger.Info("Processing media item", "username", item.Username, "url", item.MediaURL, "type", item.MediaType)
 	if err := p.downloadAndSendMedia(item.MediaURL, mediaType); err != nil {
 		return fmt.Errorf("failed to process media item: %w", err)
 	}
+
+	delay := time.Duration(1500+rand.Intn(2000)) * time.Millisecond
+	p.Logger.Info("Scheduled job: Waiting to avoid rate limit", "delay", delay)
+	time.Sleep(delay)
 	return nil
 }
 
 func (p *ParserImpl) downloadAndSendMedia(url string, mediaType int) error {
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(url)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	client := &http.Client{}
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to download media: %w", err)
 	}

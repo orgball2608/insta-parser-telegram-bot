@@ -7,6 +7,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -75,49 +76,48 @@ func (tg *TelegramImpl) SendMessageToChanel(msg string) {
 		"channel", channelName)
 }
 
-// SendImageToChanelByUrl downloads and sends an image from URL to the channel
-func (tg *TelegramImpl) SendImageToChanelByUrl(url string) {
-	// Create context with timeout for the HTTP request
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// SendMediaToChanelByUrl downloads and sends an media from URL to the channel
+func (tg *TelegramImpl) SendMediaToChanelByUrl(url string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	// Create HTTP request with context
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		tg.Logger.Error("Error creating HTTP request", "url", url, "error", err)
 		return
 	}
 
-	// Execute the request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		tg.Logger.Error("Error downloading image", "url", url, "error", err)
+		tg.Logger.Error("Error downloading media", "url", url, "error", err)
 		return
 	}
 	defer safeClose(resp.Body, tg.Logger)
 
-	// Read image data
 	media, err := io.ReadAll(resp.Body)
 	if err != nil {
-		tg.Logger.Error("Error reading image data", "url", url, "error", err)
+		tg.Logger.Error("Error reading media data", "url", url, "error", err)
 		return
 	}
 
-	// Check if we actually got image data
 	if len(media) == 0 {
-		tg.Logger.Error("Received empty image data", "url", url)
+		tg.Logger.Error("Received empty media data", "url", url)
 		return
 	}
 
-	// Send the downloaded image to channel
+	mediaType := 1
+	if strings.Contains(url, ".mp4") {
+		mediaType = 2
+	}
+
 	mediaBytes := tgbotapi.FileBytes{
 		Name:  "media",
 		Bytes: media,
 	}
 
-	if err := tg.SendFileToChannel(mediaBytes, 1); err != nil {
-		tg.Logger.Error("Error sending image to channel", "url", url, "error", err)
+	if err := tg.SendFileToChannel(mediaBytes, mediaType); err != nil {
+		tg.Logger.Error("Error sending media to channel", "url", url, "type", getMediaTypeName(mediaType), "error", err)
 	}
 }
 

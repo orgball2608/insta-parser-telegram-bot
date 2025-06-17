@@ -15,7 +15,6 @@ func (c *CommandImpl) HandleCommand() error {
 	defer cancel()
 
 	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
 
 	updates, err := c.Telegram.GetUpdatesChan(u)
 	if err != nil {
@@ -82,7 +81,7 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
 
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 
 	stories, err := c.Instagram.GetUserStories(userName)
@@ -124,7 +123,7 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 				continue
 			}
 
-			c.Telegram.SendImageToChanelByUrl(item.MediaURL)
+			c.Telegram.SendMediaToChanelByUrl(item.MediaURL)
 			processedCount++
 		}
 	}
@@ -151,7 +150,7 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
 
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 
 	highlights, err := c.Instagram.GetUserHighlights(userName)
@@ -196,7 +195,7 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 					continue
 				}
 
-				c.Telegram.SendImageToChanelByUrl(item.MediaURL)
+				c.Telegram.SendMediaToChanelByUrl(item.MediaURL)
 				processedCount++
 			}
 		}

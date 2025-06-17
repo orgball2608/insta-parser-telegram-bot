@@ -9,7 +9,6 @@ type Client interface {
 	GetUpdatesChan(u tgbotapi.UpdateConfig) (tgbotapi.UpdatesChannel, error)
 	SendMessageToUser(message string)
 	SendMessageToChanel(msg string)
-	SendImageToChanelByUrl(url string)
-	// SendMessage sends a message to a specific chat ID and returns message ID and error
+	SendMediaToChanelByUrl(url string)
 	SendMessage(chatID int64, text string) (int, error)
 }
