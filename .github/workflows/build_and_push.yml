@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: ${{ vars.IMAGE_NAME }}
+  IMAGE_NAME: ${{ lower(vars.IMAGE_NAME) }}
 
 jobs:
   container-security-check:
@@ -17,7 +17,7 @@ jobs:
     uses: ./.github/workflows/container_security_check.yml
     secrets: inherit
     with:
-      image-name: ${{ github.event.repository.name }}
+      image-name: ${{ lower(github.event.repository.name) }}
 
   build-and-push:
     needs: container-security-check
