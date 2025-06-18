@@ -61,8 +61,8 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: |
-            ${{ steps.prepare.outputs.image_name_lower }}:${{ env.IMAGE_TAG }}
+          image-ref: ${{ steps.prepare.outputs.image_name_lower }}:${{ env.IMAGE_TAG }}
+          format: 'table'
           output: ${{ inputs.working-directory }}/trivy-result.txt
           ignore-unfixed: true
           timeout: 10m
