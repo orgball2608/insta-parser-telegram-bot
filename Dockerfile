@@ -1,7 +1,7 @@
 # Stage 1: Go Modules Caching
 # Tách riêng việc download module để tận dụng Docker cache.
 # Nếu go.mod/go.sum không đổi, bước này sẽ không chạy lại.
-FROM golang:1.21-alpine AS modules
+FROM golang:1.23.4-alpine AS modules
 WORKDIR /modules
 COPY go.mod go.sum ./
 RUN go mod download
