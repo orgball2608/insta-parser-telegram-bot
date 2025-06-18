@@ -24,6 +24,10 @@ jobs:
         shell: bash
         working-directory: ${{ inputs.working-directory }}
     steps:
+      - name: Prepare image name
+        id: prepare
+        run: echo "image_name_lower=$(echo ${{ inputs.image-name }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -36,7 +40,7 @@ jobs:
           context: ${{ inputs.working-directory }}
           load: true
           tags: |
-            ${{ inputs.image-name }}:${{ env.IMAGE_TAG }}
+            ${{ steps.prepare.outputs.image_name_lower }}:${{ env.IMAGE_TAG }}
 
       - name: Install Dockle
         run: |
@@ -52,13 +56,13 @@ jobs:
           dockle -f txt \
             -o ${{ inputs.working-directory }}dockle-result.txt \
             -i ${{ inputs.working-directory }}.dockleignore \
-            ${{ inputs.image-name }}:${{ env.IMAGE_TAG }}
+            ${{ steps.prepare.outputs.image_name_lower }}:${{ env.IMAGE_TAG }}
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: |
-            ${{ inputs.image-name }}:${{ env.IMAGE_TAG }}
+            ${{ steps.prepare.outputs.image_name_lower }}:${{ env.IMAGE_TAG }}
           output: ${{ inputs.working-directory }}/trivy-result.txt
           ignore-unfixed: true
           timeout: 10m
