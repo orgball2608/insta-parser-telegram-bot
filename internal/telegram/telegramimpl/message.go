@@ -3,12 +3,14 @@ package telegramimpl
 import (
 	"context"
 	"fmt"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
 )
 
 // SendFileToChannel sends a photo or video to the configured Telegram channel
@@ -76,33 +78,24 @@ func (tg *TelegramImpl) SendMessageToChanel(msg string) {
 		"channel", channelName)
 }
 
-// SendMediaToChanelByUrl downloads and sends an media from URL to the channel
+// SendMediaToChanelByUrl downloads and sends media from a URL to the channel.
 func (tg *TelegramImpl) SendMediaToChanelByUrl(url string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
+	var media []byte
+	var err error
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		tg.Logger.Error("Error creating HTTP request", "url", url, "error", err)
-		return
+	operation := func() error {
+		media, err = tg.downloadMedia(url)
+		return err
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	err = retry.Do(context.Background(), tg.Logger, "DownloadMedia", operation, retry.DefaultConfig())
 	if err != nil {
-		tg.Logger.Error("Error downloading media", "url", url, "error", err)
-		return
-	}
-	defer safeClose(resp.Body, tg.Logger)
-
-	media, err := io.ReadAll(resp.Body)
-	if err != nil {
-		tg.Logger.Error("Error reading media data", "url", url, "error", err)
+		tg.Logger.Error("Failed to download media after several retries", "url", url, "error", err)
 		return
 	}
 
 	if len(media) == 0 {
-		tg.Logger.Error("Received empty media data", "url", url)
+		tg.Logger.Error("Received empty media data after download", "url", url)
 		return
 	}
 
@@ -119,6 +112,34 @@ func (tg *TelegramImpl) SendMediaToChanelByUrl(url string) {
 	if err := tg.SendFileToChannel(mediaBytes, mediaType); err != nil {
 		tg.Logger.Error("Error sending media to channel", "url", url, "type", getMediaTypeName(mediaType), "error", err)
 	}
+}
+
+func (tg *TelegramImpl) downloadMedia(url string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating HTTP request: %w", err)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http client error: %w", err)
+	}
+	defer safeClose(resp.Body, tg.Logger)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bad status code: %d", resp.StatusCode)
+	}
+
+	media, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading media data: %w", err)
+	}
+
+	return media, nil
 }
 
 // SendMessage sends a message to a specific chat ID

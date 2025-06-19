@@ -11,6 +11,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/config"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
 	"github.com/playwright-community/playwright-go"
 	"go.uber.org/fx"
 )
@@ -110,21 +111,26 @@ func (a *APIAdapter) GetUserHighlights(userName string, processorFunc instagram.
 func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
 	a.logger.Info("Scraping stories", "user", userName)
 
-	context, err := a.playwright.Browser().NewContext(playwright.BrowserNewContextOptions{
+	brContext, err := a.playwright.Browser().NewContext(playwright.BrowserNewContextOptions{
 		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("could not create browser context: %w", err)
 	}
-	defer context.Close()
+	defer brContext.Close()
 
-	page, err := context.NewPage()
+	page, err := brContext.NewPage()
+	gotoOperation := func() error {
+		_, err := page.Goto("https://instasupersave.com/en/instagram-stories/", playwright.PageGotoOptions{Timeout: playwright.Float(60000)})
+		return err
+	}
+	err = retry.Do(context.Background(), a.logger, "PageGoto", gotoOperation, retry.DefaultConfig())
 	if err != nil {
-		return nil, fmt.Errorf("could not create page: %w", err)
+		return nil, fmt.Errorf("could not goto page after retries: %w", err)
 	}
 
-	if _, err = page.Goto("https://instasupersave.com/en/instagram-stories/", playwright.PageGotoOptions{Timeout: playwright.Float(60000)}); err != nil {
-		return nil, fmt.Errorf("could not goto page: %w", err)
+	clickOperation := func() error {
+		return page.Click("button.search-form__button")
 	}
 
 	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
@@ -133,8 +139,9 @@ func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
 
 	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
 
-	if err = page.Click("button.search-form__button"); err != nil {
-		return nil, fmt.Errorf("could not click search button: %w", err)
+	err = retry.Do(context.Background(), a.logger, "SearchButtonClick", clickOperation, retry.DefaultConfig())
+	if err != nil {
+		return nil, fmt.Errorf("could not click search button after retries: %w", err)
 	}
 
 	combinedSelector := ".output-profile, .error-message"
