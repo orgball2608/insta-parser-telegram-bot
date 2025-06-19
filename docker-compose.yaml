@@ -7,19 +7,17 @@ services:
       dockerfile: Dockerfile
     container_name: insta-parser-bot
     restart: unless-stopped
+    # Ánh xạ cổng từ máy chủ (host) sang container
+    # HOST:CONTAINER
+    # Cổng trong container là 8080 (theo Dockerfile)
+    # Cổng trên máy chủ bạn có thể tùy chọn, ví dụ 8081
     ports:
-      - "8080:8080"
-    environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - INSTAGRAM_USERNAME=${INSTAGRAM_USERNAME}
-      - INSTAGRAM_PASSWORD=${INSTAGRAM_PASSWORD}
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=${DB_USER:-postgres}
-      - DB_PASSWORD=${DB_PASSWORD:-postgres}
-      - DB_NAME=${DB_NAME:-insta_parser}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - "8081:8080"
+    # Sử dụng env_file để tải tất cả biến môi trường từ file .env
+    # Điều này giúp file compose sạch sẽ và bảo mật hơn.
+    env_file:
+      - .env
+    # Đảm bảo app chỉ khởi động sau khi postgres đã sẵn sàng
     depends_on:
       - postgres
       - redis
@@ -28,11 +26,15 @@ services:
     image: postgres:16-alpine
     container_name: insta-parser-postgres
     restart: unless-stopped
+    # Các biến môi trường cho postgres sẽ được lấy từ file .env
+    # Docker Compose sẽ tự động thay thế ${VAR_NAME} bằng giá trị trong .env
     environment:
-      - POSTGRES_USER=${DB_USER:-postgres}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
-      - POSTGRES_DB=${DB_NAME:-insta_parser}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_NAME}
     ports:
+      # Chỉ mở cổng này ra ngoài nếu bạn cần kết nối vào DB từ máy của mình
+      # Nếu không, hãy comment dòng này lại để tăng bảo mật.
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -42,6 +44,7 @@ services:
     container_name: insta-parser-redis
     restart: unless-stopped
     ports:
+      # Tương tự postgres, chỉ mở nếu cần truy cập từ bên ngoài
       - "6379:6379"
     volumes:
       - redis_data:/data

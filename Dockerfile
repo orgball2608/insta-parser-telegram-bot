@@ -1,48 +1,55 @@
 # Stage 1: Go Modules Caching
-FROM golang:1.23.4-alpine AS modules
+FROM golang:1.22-alpine AS modules
 WORKDIR /modules
 COPY go.mod go.sum ./
+ENV GOTOOLCHAIN=auto
 RUN go mod download
 
 # Stage 2: Builder
-FROM golang:1.23.4-alpine AS builder
+FROM golang:1.22-alpine AS builder
 COPY --from=modules /go/pkg /go/pkg
 WORKDIR /app
 COPY . .
+ENV GOTOOLCHAIN=auto
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/main ./cmd/main.go
 
-# Stage 3: Final Runtime Image
-FROM ubuntu:noble
 
-# Cài đặt các gói cần thiết tối thiểu
-# 'sudo' cần thiết để '--with-deps' có thể cài đặt các thư viện hệ thống
-RUN apt-get update && apt-get install -y ca-certificates tzdata sudo && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache go
+RUN go install github.com/playwright-community/playwright-go/cmd/playwright@v0.5200.0
+
+
+FROM mcr.microsoft.com/playwright:v1.52.0-jammy
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Go runtime dependencies
+RUN apt-get update && apt-get install -y ca-certificates tzdata sudo curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy file binary ứng dụng và migrations
+
 COPY --from=builder /app/main .
 COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /go/bin/playwright /usr/local/bin/playwright
+COPY docker-entrypoint.sh /docker-entrypoint.sh
 
-# Tạo user không phải root
-RUN useradd --create-home --shell /bin/bash appuser
-# Thêm user vào nhóm sudo để có thể chạy lệnh cài đặt với quyền cao hơn
-RUN adduser appuser sudo
-# Cấu hình sudo để không hỏi mật khẩu
+RUN chmod +x /docker-entrypoint.sh
+
+RUN useradd --create-home --shell /bin/bash appuser || true
+RUN usermod -aG sudo appuser || true
 RUN echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-# Cấp quyền cho user trên thư mục ứng dụng
+
 RUN chown -R appuser:appuser /app
 
-# ---- PHẦN THAY ĐỔI QUAN TRỌNG NHẤT ----
-# Chuyển sang user 'appuser'
 USER appuser
-
-
-RUN npx playwright@latest install --with-deps chromium
+RUN /usr/local/bin/playwright install --with-deps
 
 # Expose port
 EXPOSE 8080
 
-# Lệnh chạy ứng dụng (vẫn đang là 'appuser')
+# Set the entrypoint script to configure environment variables
+ENTRYPOINT ["/docker-entrypoint.sh"]
+
+
 CMD ["/app/main"]
