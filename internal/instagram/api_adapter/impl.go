@@ -47,7 +47,6 @@ func (a *APIAdapter) GetUserStories(userName string) ([]domain.StoryItem, error)
 	return storyItems, nil
 }
 
-// THAY ĐỔI: Chữ ký hàm GetUserHighlights
 func (a *APIAdapter) GetUserHighlights(userName string, processorFunc instagram.HighlightReelProcessorFunc) error {
 	return a.scrapeHighlightLinks(userName, processorFunc)
 }
@@ -97,8 +96,15 @@ func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
 		return nil, fmt.Errorf("could not click search button: %w", err)
 	}
 
-	if _, err = page.WaitForSelector(".output-profile", playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(45000)}); err != nil {
-		return nil, fmt.Errorf("search results did not load in time: %w", err)
+	combinedSelector := ".output-profile, .error-message"
+	if _, err = page.WaitForSelector(combinedSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(45000)}); err != nil {
+		return nil, fmt.Errorf("search results or error message did not load in time: %w", err)
+	}
+
+	isPrivate, _ := page.IsVisible(".error-message")
+	if isPrivate {
+		a.logger.Warn("Account is private, cannot scrape stories", "user", userName)
+		return nil, instagram.ErrPrivateAccount
 	}
 
 	a.logger.Info("Processing 'stories' tab...")
@@ -160,8 +166,15 @@ func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagr
 		return fmt.Errorf("could not click search button: %w", err)
 	}
 
-	if _, err = page.WaitForSelector(".output-profile", playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(45000)}); err != nil {
-		return fmt.Errorf("search results did not load in time: %w", err)
+	combinedSelector := ".output-profile, .error-message"
+	if _, err = page.WaitForSelector(combinedSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(45000)}); err != nil {
+		return fmt.Errorf("search results or error message did not load in time: %w", err)
+	}
+
+	isPrivate, _ := page.IsVisible(".error-message")
+	if isPrivate {
+		a.logger.Warn("Account is private, cannot scrape highlights", "user", userName)
+		return instagram.ErrPrivateAccount
 	}
 
 	a.logger.Info("Processing 'highlights' tab...")
@@ -224,7 +237,6 @@ func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagr
 }
 
 func scrollAndExtractAllLinks(page playwright.Page) ([]string, error) {
-	// ... (Hàm này giữ nguyên)
 	linksSet := make(map[string]bool)
 	previousLinkCount := -1
 

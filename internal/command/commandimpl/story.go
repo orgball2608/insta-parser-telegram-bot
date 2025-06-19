@@ -2,12 +2,14 @@ package commandimpl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 )
 
 func (c *CommandImpl) HandleCommand() error {
@@ -86,6 +88,11 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 
 	stories, err := c.Instagram.GetUserStories(userName)
 	if err != nil {
+		if errors.Is(err, instagram.ErrPrivateAccount) {
+			_, _ = c.Telegram.SendMessage(update.Message.Chat.ID,
+				fmt.Sprintf("Account '%s' is private. I cannot fetch stories.", userName))
+			return nil
+		}
 		return fmt.Errorf("failed to get stories for %s: %w", userName, err)
 	}
 
@@ -195,6 +202,11 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 
 	err = c.Instagram.GetUserHighlights(userName, processor)
 	if err != nil {
+		if errors.Is(err, instagram.ErrPrivateAccount) {
+			_, _ = c.Telegram.SendMessage(update.Message.Chat.ID,
+				fmt.Sprintf("Account '%s' is private. I cannot fetch highlights.", userName))
+			return nil
+		}
 		return fmt.Errorf("failed to get highlights for %s: %w", userName, err)
 	}
 
