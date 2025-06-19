@@ -1,6 +1,7 @@
 package api_adapter
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math/rand"
@@ -14,21 +15,76 @@ import (
 	"go.uber.org/fx"
 )
 
+type PlaywrightManager struct {
+	pw      *playwright.Playwright
+	browser playwright.Browser
+	logger  logger.Logger
+}
+
+func (pm *PlaywrightManager) Browser() playwright.Browser {
+	return pm.browser
+}
+
+func NewPlaywrightManager(lc fx.Lifecycle, log logger.Logger) (*PlaywrightManager, error) {
+	log.Info("Initializing Playwright Manager...")
+
+	pw, err := playwright.Run()
+	if err != nil {
+		return nil, fmt.Errorf("could not start playwright: %w", err)
+	}
+
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+		Headless: playwright.Bool(true),
+		Args:     []string{"--no-sandbox", "--disable-setuid-sandbox"},
+	})
+	if err != nil {
+		_ = pw.Stop()
+		return nil, fmt.Errorf("could not launch browser: %w", err)
+	}
+
+	manager := &PlaywrightManager{
+		pw:      pw,
+		browser: browser,
+		logger:  log,
+	}
+
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			log.Info("Shutting down Playwright browser...")
+			if err := manager.browser.Close(); err != nil {
+				log.Error("Failed to close playwright browser", "error", err)
+			}
+			if err := manager.pw.Stop(); err != nil {
+				log.Error("Failed to stop playwright", "error", err)
+				return err
+			}
+			log.Info("Playwright stopped successfully.")
+			return nil
+		},
+	})
+
+	log.Info("Playwright Manager initialized successfully.")
+	return manager, nil
+}
+
 type Opts struct {
 	fx.In
-	Config *config.Config
-	Logger logger.Logger
+	Config     *config.Config
+	Logger     logger.Logger
+	Playwright *PlaywrightManager
 }
 
 type APIAdapter struct {
-	config *config.Config
-	logger logger.Logger
+	config     *config.Config
+	logger     logger.Logger
+	playwright *PlaywrightManager
 }
 
 func New(opts Opts) instagram.Client {
 	return &APIAdapter{
-		config: opts.Config,
-		logger: opts.Logger,
+		config:     opts.Config,
+		logger:     opts.Logger,
+		playwright: opts.Playwright,
 	}
 }
 
@@ -52,24 +108,9 @@ func (a *APIAdapter) GetUserHighlights(userName string, processorFunc instagram.
 }
 
 func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
-	a.logger.Info("Starting playwright to scrape stories", "user", userName)
+	a.logger.Info("Scraping stories", "user", userName)
 
-	pw, err := playwright.Run()
-	if err != nil {
-		return nil, fmt.Errorf("could not start playwright: %w", err)
-	}
-	defer pw.Stop()
-
-	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(true),
-		Args:     []string{"--no-sandbox", "--disable-setuid-sandbox"},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not launch browser: %w", err)
-	}
-	defer browser.Close()
-
-	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
+	context, err := a.playwright.Browser().NewContext(playwright.BrowserNewContextOptions{
 		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
 	})
 	if err != nil {
@@ -122,24 +163,9 @@ func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
 }
 
 func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagram.HighlightReelProcessorFunc) error {
-	a.logger.Info("Starting playwright to scrape highlights", "user", userName)
+	a.logger.Info("Scraping highlights", "user", userName)
 
-	pw, err := playwright.Run()
-	if err != nil {
-		return fmt.Errorf("could not start playwright: %w", err)
-	}
-	defer pw.Stop()
-
-	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(true),
-		Args:     []string{"--no-sandbox", "--disable-setuid-sandbox"},
-	})
-	if err != nil {
-		return fmt.Errorf("could not launch browser: %w", err)
-	}
-	defer browser.Close()
-
-	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
+	context, err := a.playwright.Browser().NewContext(playwright.BrowserNewContextOptions{
 		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
 	})
 	if err != nil {
@@ -197,7 +223,6 @@ func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagr
 
 	for i := 0; i < albumCount; i++ {
 		currentAlbum := page.Locator(highlightAlbumSelector).Nth(i)
-
 		albumTitle, _ := currentAlbum.Locator("p.highlight__title").InnerText()
 		a.logger.Info("Processing album", "index", i+1, "title", albumTitle)
 
@@ -229,7 +254,6 @@ func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagr
 			a.logger.Error("Processor function returned an error, stopping highlight processing", "error", err)
 			return err
 		}
-
 		a.logger.Info("Finished processing album", "title", albumTitle, "new_links", len(albumLinks))
 	}
 

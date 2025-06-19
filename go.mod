@@ -2,8 +2,6 @@ module github.com/orgball2608/insta-parser-telegram-bot
 
 go 1.23.4
 
-replace github.com/Davincible/goinsta/v3 => github.com/orgball2608/goinsta/v3 v3.0.0-20240622165116-6f07da860d55
-
 require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/caarlos0/env/v9 v9.0.0

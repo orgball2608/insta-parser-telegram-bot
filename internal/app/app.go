@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/pgx"
 	"github.com/pressly/goose/v3"
 	"go.uber.org/fx"
+	"golang.org/x/sync/errgroup"
 )
 
 var Module = fx.Options(
@@ -35,6 +37,7 @@ var Module = fx.Options(
 		logger.FxOption,
 		pgx.New,
 		newHTTPServer,
+		api_adapter.NewPlaywrightManager,
 	),
 	fx.Provide(
 		fx.Annotate(
@@ -116,63 +119,95 @@ func runMigrations(log logger.Logger, cfg *config.Config) error {
 	return nil
 }
 
+// supervisor wraps a task to make it restartable on panic or error.
+func supervisor(ctx context.Context, log logger.Logger, name string, task func(ctx context.Context) error) func() error {
+	return func() error {
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Error("Service panicked, restarting...", "service", name, "panic", r, "stack", string(debug.Stack()))
+							time.Sleep(5 * time.Second)
+						}
+					}()
+
+					err := task(ctx)
+					if err != nil && !errors.Is(err, context.Canceled) {
+						log.Error("Service stopped with error, restarting...", "service", name, "error", err)
+						time.Sleep(5 * time.Second)
+					} else if errors.Is(err, context.Canceled) {
+						log.Info("Service stopped gracefully", "service", name)
+					}
+				}()
+			}
+		}
+	}
+}
+
 func startServices(
 	lc fx.Lifecycle,
 	log logger.Logger,
 	server *HTTPServer,
-	tgClient telegram.Client,
-	pClient parser.Client,
 	cmdClient command.Client,
+	pClient parser.Client,
 ) {
+	g, gCtx := errgroup.WithContext(context.Background())
+
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		select {
+		case sig := <-sigChan:
+			log.Info("Received shutdown signal from OS", "signal", sig)
+		case <-gCtx.Done():
+		}
+	}()
+
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			go func() {
+			log.Info("Starting services...")
+
+			// Start HTTP Server
+			g.Go(func() error {
 				log.Info("Starting HTTP server", "addr", server.server.Addr)
 				if err := server.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					log.Error("HTTP server failed", "error", err)
+					return fmt.Errorf("http server failed: %w", err)
 				}
-			}()
+				return nil
+			})
 
-			go func() {
-				if err := pClient.ScheduleParseStories(ctx); err != nil {
-					log.Error("Story parser failed", "error", err)
-					tgClient.SendMessageToUser(fmt.Sprintf("Story parser error: %v", err))
-				}
-			}()
+			g.Go(supervisor(gCtx, log, "StoryParserScheduler", pClient.ScheduleParseStories))
+			g.Go(supervisor(gCtx, log, "TelegramCommandHandler", func(_ context.Context) error {
+				return cmdClient.HandleCommand()
+			}))
 
+			// Goroutine to wait for the first service to fail and initiate shutdown
 			go func() {
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					default:
-						if err := cmdClient.HandleCommand(); err != nil {
-							log.Error("Command handler failed", "error", err)
-							tgClient.SendMessageToUser(fmt.Sprintf("Command error: %v", err))
-						}
-					}
+				if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+					log.Error("A critical service failed, application is shutting down", "error", err)
+				} else {
+					log.Info("All services have been shut down.")
 				}
 			}()
 
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			log.Info("Shutting down HTTP server")
-			return server.server.Shutdown(ctx)
+			log.Info("Initiating graceful shutdown...")
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+
+			// Shutdown the HTTP server gracefully. errgroup will handle the other services.
+			if err := server.server.Shutdown(shutdownCtx); err != nil {
+				log.Error("HTTP server shutdown failed", "error", err)
+			}
+
+			// Wait for the errgroup to finish, which includes all supervised tasks
+			return g.Wait()
 		},
 	})
-
-	go func() {
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-		sig := <-sigChan
-		log.Info("Received shutdown signal", "signal", sig)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if err := server.server.Shutdown(ctx); err != nil {
-			log.Error("Server shutdown failed", "error", err)
-		}
-	}()
 }
