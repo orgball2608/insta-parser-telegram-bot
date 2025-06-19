@@ -145,7 +145,7 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 	}
 
 	_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
-		fmt.Sprintf("Getting highlights for user: %s...", userName))
+		fmt.Sprintf("Getting highlights for user: %s... This may take a while.", userName))
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
@@ -153,32 +153,23 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 
-	highlights, err := c.Instagram.GetUserHighlights(userName)
-	if err != nil {
-		return fmt.Errorf("failed to get highlights for %s: %w", userName, err)
-	}
+	var processedCount int64 = 0
+	var reelsFound bool = false
 
-	c.Logger.Info("Retrieved highlights", "username", userName, "count", len(highlights))
-
-	if len(highlights) == 0 {
-		_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
-			fmt.Sprintf("No highlights found for user: %s", userName))
-		return err
-	}
-
-	processedCount := 0
-
-	for _, highlightReel := range highlights {
-		c.Logger.Info("Processing highlight", "title", highlightReel.Title, "items", len(highlightReel.Items))
+	processor := func(highlightReel domain.HighlightReel) error {
+		reelsFound = true
+		c.Logger.Info("Processing highlight reel", "title", highlightReel.Title, "items", len(highlightReel.Items))
 
 		if len(highlightReel.Items) == 0 {
-			continue
+			return nil
 		}
 
 		select {
 		case <-ctxWithTimeout.Done():
 			return fmt.Errorf("operation timed out")
 		default:
+			c.Telegram.SendMessageToChanel(fmt.Sprintf("Stories for highlight: %s", highlightReel.Title))
+
 			for _, item := range highlightReel.Items {
 				if item.MediaURL == "" {
 					continue
@@ -198,11 +189,23 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 				c.Telegram.SendMediaToChanelByUrl(item.MediaURL)
 				processedCount++
 			}
+			return nil
 		}
 	}
 
+	err = c.Instagram.GetUserHighlights(userName, processor)
+	if err != nil {
+		return fmt.Errorf("failed to get highlights for %s: %w", userName, err)
+	}
+
+	if !reelsFound {
+		_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
+			fmt.Sprintf("No highlights found for user: %s", userName))
+		return err
+	}
+
 	_, err = c.Telegram.SendMessage(update.Message.Chat.ID,
-		fmt.Sprintf("Processed %d highlight items for %s", processedCount, userName))
+		fmt.Sprintf("Finished processing. Sent %d highlight items for %s", processedCount, userName))
 
 	return err
 }

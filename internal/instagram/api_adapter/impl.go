@@ -33,7 +33,7 @@ func New(opts Opts) instagram.Client {
 }
 
 func (a *APIAdapter) GetUserStories(userName string) ([]domain.StoryItem, error) {
-	links, err := a.scrapeMediaLinks(userName, "stories")
+	links, err := a.scrapeStoryLinks(userName)
 	if err != nil {
 		return nil, err
 	}
@@ -47,27 +47,13 @@ func (a *APIAdapter) GetUserStories(userName string) ([]domain.StoryItem, error)
 	return storyItems, nil
 }
 
-func (a *APIAdapter) GetUserHighlights(userName string) ([]domain.HighlightReel, error) {
-	links, err := a.scrapeMediaLinks(userName, "highlights")
-	if err != nil {
-		return nil, err
-	}
-	var highlightItems []domain.StoryItem
-	for _, link := range links {
-		highlightItems = append(highlightItems, domain.StoryItem{
-			MediaURL: link,
-			Username: userName,
-		})
-	}
-	reel := domain.HighlightReel{
-		Title: "All Highlights",
-		Items: highlightItems,
-	}
-	return []domain.HighlightReel{reel}, nil
+// THAY ĐỔI: Chữ ký hàm GetUserHighlights
+func (a *APIAdapter) GetUserHighlights(userName string, processorFunc instagram.HighlightReelProcessorFunc) error {
+	return a.scrapeHighlightLinks(userName, processorFunc)
 }
 
-func (a *APIAdapter) scrapeMediaLinks(userName, mediaType string) ([]string, error) {
-	a.logger.Info("Starting playwright to scrape media", "user", userName, "type", mediaType)
+func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
+	a.logger.Info("Starting playwright to scrape stories", "user", userName)
 
 	pw, err := playwright.Run()
 	if err != nil {
@@ -115,78 +101,130 @@ func (a *APIAdapter) scrapeMediaLinks(userName, mediaType string) ([]string, err
 		return nil, fmt.Errorf("search results did not load in time: %w", err)
 	}
 
-	finalLinksSet := make(map[string]bool)
-
-	if mediaType == "stories" {
-		a.logger.Info("Processing 'stories' tab...")
-		tabSelector := "//button[contains(text(),'stories')]"
-		if err := page.Click(tabSelector); err != nil {
-			return nil, fmt.Errorf("could not click stories tab: %w", err)
-		}
-		time.Sleep(2 * time.Second)
-		storyLinks, err := scrollAndExtractAllLinks(page)
-		if err != nil {
-			a.logger.Error("Failed to extract from stories tab", "error", err)
-		} else {
-			for _, link := range storyLinks {
-				finalLinksSet[link] = true
-			}
-		}
+	a.logger.Info("Processing 'stories' tab...")
+	tabSelector := "//button[contains(text(),'stories')]"
+	if err := page.Click(tabSelector); err != nil {
+		return nil, fmt.Errorf("could not click stories tab: %w", err)
 	}
-
-	if mediaType == "highlights" {
-		a.logger.Info("Processing 'highlights' tab...")
-		tabSelector := "//button[contains(text(),'highlights')]"
-		if err := page.Click(tabSelector); err != nil {
-			return nil, fmt.Errorf("could not click highlights tab: %w", err)
-		}
-
-		highlightAlbumSelector := "button.highlight__button"
-		if _, err = page.WaitForSelector(highlightAlbumSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(15000)}); err != nil {
-			a.logger.Warn("Highlight albums did not appear.", "error", err)
-			return []string{}, nil
-		}
-
-		albumCount, err := page.Locator(highlightAlbumSelector).Count()
-		if err != nil {
-			return nil, fmt.Errorf("could not count highlight albums: %w", err)
-		}
-		a.logger.Info("Found highlight albums.", "count", albumCount)
-
-		for i := 0; i < albumCount; i++ {
-			currentAlbum := page.Locator(highlightAlbumSelector).Nth(i)
-
-			albumTitle, _ := currentAlbum.Locator("p.highlight__title").InnerText()
-			a.logger.Info("Processing album", "index", i+1, "title", albumTitle)
-
-			if err := currentAlbum.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)}); err != nil {
-				a.logger.Warn("Could not click on album, skipping.", "title", albumTitle, "error", err)
-				continue
-			}
-
-			albumLinks, err := scrollAndExtractAllLinks(page)
-			if err != nil {
-				a.logger.Error("Failed to extract links for album", "title", albumTitle, "error", err)
-			}
-
-			for _, link := range albumLinks {
-				finalLinksSet[link] = true
-			}
-			a.logger.Info("Finished processing album", "title", albumTitle, "new_links", len(albumLinks))
-		}
+	time.Sleep(2 * time.Second)
+	storyLinks, err := scrollAndExtractAllLinks(page)
+	if err != nil {
+		a.logger.Error("Failed to extract from stories tab", "error", err)
+		return []string{}, nil
 	}
-
-	finalLinks := make([]string, 0, len(finalLinksSet))
-	for link := range finalLinksSet {
-		finalLinks = append(finalLinks, link)
-	}
-
-	a.logger.Info("Total unique links scraped", "user", userName, "type", mediaType, "count", len(finalLinks))
-	return finalLinks, nil
+	return storyLinks, nil
 }
 
-// scrollAndExtractAllLinks thực hiện cuộn trang để tải tất cả media và trích xuất link
+func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagram.HighlightReelProcessorFunc) error {
+	a.logger.Info("Starting playwright to scrape highlights", "user", userName)
+
+	pw, err := playwright.Run()
+	if err != nil {
+		return fmt.Errorf("could not start playwright: %w", err)
+	}
+	defer pw.Stop()
+
+	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+		Headless: playwright.Bool(true),
+		Args:     []string{"--no-sandbox", "--disable-setuid-sandbox"},
+	})
+	if err != nil {
+		return fmt.Errorf("could not launch browser: %w", err)
+	}
+	defer browser.Close()
+
+	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
+		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
+	})
+	if err != nil {
+		return fmt.Errorf("could not create browser context: %w", err)
+	}
+	defer context.Close()
+
+	page, err := context.NewPage()
+	if err != nil {
+		return fmt.Errorf("could not create page: %w", err)
+	}
+
+	if _, err = page.Goto("https://instasupersave.com/en/instagram-stories/", playwright.PageGotoOptions{Timeout: playwright.Float(60000)}); err != nil {
+		return fmt.Errorf("could not goto page: %w", err)
+	}
+
+	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
+		return fmt.Errorf("could not type username: %w", err)
+	}
+
+	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
+
+	if err = page.Click("button.search-form__button"); err != nil {
+		return fmt.Errorf("could not click search button: %w", err)
+	}
+
+	if _, err = page.WaitForSelector(".output-profile", playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(45000)}); err != nil {
+		return fmt.Errorf("search results did not load in time: %w", err)
+	}
+
+	a.logger.Info("Processing 'highlights' tab...")
+	tabSelector := "//button[contains(text(),'highlights')]"
+	if err := page.Click(tabSelector); err != nil {
+		return fmt.Errorf("could not click highlights tab: %w", err)
+	}
+
+	highlightAlbumSelector := "button.highlight__button"
+	if _, err = page.WaitForSelector(highlightAlbumSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(15000)}); err != nil {
+		a.logger.Warn("Highlight albums did not appear.", "error", err)
+		return nil
+	}
+
+	albumCount, err := page.Locator(highlightAlbumSelector).Count()
+	if err != nil {
+		return fmt.Errorf("could not count highlight albums: %w", err)
+	}
+	a.logger.Info("Found highlight albums.", "count", albumCount)
+
+	for i := 0; i < albumCount; i++ {
+		currentAlbum := page.Locator(highlightAlbumSelector).Nth(i)
+
+		albumTitle, _ := currentAlbum.Locator("p.highlight__title").InnerText()
+		a.logger.Info("Processing album", "index", i+1, "title", albumTitle)
+
+		if err := currentAlbum.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)}); err != nil {
+			a.logger.Warn("Could not click on album, skipping.", "title", albumTitle, "error", err)
+			continue
+		}
+
+		albumLinks, err := scrollAndExtractAllLinks(page)
+		if err != nil {
+			a.logger.Error("Failed to extract links for album", "title", albumTitle, "error", err)
+			continue
+		}
+
+		var highlightItems []domain.StoryItem
+		for _, link := range albumLinks {
+			highlightItems = append(highlightItems, domain.StoryItem{
+				MediaURL: link,
+				Username: userName,
+			})
+		}
+
+		reel := domain.HighlightReel{
+			Title: albumTitle,
+			Items: highlightItems,
+		}
+
+		if err := processorFunc(reel); err != nil {
+			a.logger.Error("Processor function returned an error, stopping highlight processing", "error", err)
+			return err
+		}
+
+		a.logger.Info("Finished processing album", "title", albumTitle, "new_links", len(albumLinks))
+	}
+
+	return nil
+}
+
 func scrollAndExtractAllLinks(page playwright.Page) ([]string, error) {
+	// ... (Hàm này giữ nguyên)
 	linksSet := make(map[string]bool)
 	previousLinkCount := -1
 
