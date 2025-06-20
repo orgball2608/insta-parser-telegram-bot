@@ -11,6 +11,7 @@ import (
 	"github.com/go-co-op/gocron/v2"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	storyRepo "github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/story"
+	"github.com/panjf2000/ants/v2"
 )
 
 func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
@@ -26,7 +27,7 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 	}
 
 	_, err = scheduler.NewJob(
-		gocron.DurationRandomJob(1*time.Minute, 2*time.Minute),
+		gocron.DurationRandomJob(15*time.Minute, 20*time.Minute),
 		gocron.NewTask(func() {
 			if ctx.Err() != nil {
 				p.Logger.Info("Context cancelled, stopping story parsing schedule")
@@ -51,26 +52,9 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 			p.Logger.Info("Found users to parse", "count", len(usernames))
 			shuffledUsernames := shuffleUsernames(usernames)
 
-			for i, username := range shuffledUsernames {
-				if i > 0 {
-					delay := time.Duration(10+rand.Intn(20)) * time.Second
-					p.Logger.Info("Waiting before processing next user", "delay", delay.String(), "nextUsername", username)
-					select {
-					case <-taskCtx.Done():
-						p.Logger.Warn("Context cancelled during delay between users")
-						return
-					case <-time.After(delay):
-					}
-				}
+			p.runJobsWithAnts(taskCtx, shuffledUsernames)
 
-				p.Logger.Info("Parsing stories for user", "username", username)
-				if err := p.processSubscribedUser(taskCtx, username); err != nil {
-					p.Logger.Error("Failed to process subscribed user", "username", username, "error", err)
-				} else {
-					p.Logger.Info("Successfully processed subscribed user", "username", username)
-				}
-			}
-			p.Logger.Info("Completed scheduled story parsing")
+			p.Logger.Info("Completed scheduling all jobs for this run.")
 		}),
 	)
 	if err != nil {
@@ -88,6 +72,40 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func (p *ParserImpl) runJobsWithAnts(ctx context.Context, usernames []string) {
+	var wg sync.WaitGroup
+	pool, _ := ants.NewPool(5, ants.WithPreAlloc(true))
+	defer pool.Release()
+
+	for _, username := range usernames {
+		wg.Add(1)
+		userToProcess := username
+
+		err := pool.Submit(func() {
+			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				p.Logger.Info("Skipping job due to context cancellation", "username", userToProcess)
+				return
+			default:
+				p.Logger.Info("Worker processing user", "username", userToProcess)
+				if err := p.processSubscribedUser(ctx, userToProcess); err != nil {
+					p.Logger.Error("Worker failed to process user", "username", userToProcess, "error", err)
+				} else {
+					p.Logger.Info("Worker successfully processed user", "username", userToProcess)
+				}
+				time.Sleep(time.Duration(1+rand.Intn(3)) * time.Second)
+			}
+		})
+		if err != nil {
+			wg.Done()
+			p.Logger.Error("Failed to submit job to ants pool", "username", userToProcess, "error", err)
+		}
+	}
+
+	wg.Wait()
 }
 
 func (p *ParserImpl) processSubscribedUser(ctx context.Context, username string) error {
