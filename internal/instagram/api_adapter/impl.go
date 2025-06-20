@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"runtime/debug"
 	"time"
 
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
@@ -16,19 +17,21 @@ import (
 	"go.uber.org/fx"
 )
 
+// PlaywrightManager manage the playwright instance
 type PlaywrightManager struct {
 	pw      *playwright.Playwright
 	browser playwright.Browser
 	logger  logger.Logger
 }
 
+// Browser return the browser instance
 func (pm *PlaywrightManager) Browser() playwright.Browser {
 	return pm.browser
 }
 
+// NewPlaywrightManager create a new playwright manager
 func NewPlaywrightManager(lc fx.Lifecycle, log logger.Logger) (*PlaywrightManager, error) {
 	log.Info("Initializing Playwright Manager...")
-
 	pw, err := playwright.Run()
 	if err != nil {
 		return nil, fmt.Errorf("could not start playwright: %w", err)
@@ -36,7 +39,16 @@ func NewPlaywrightManager(lc fx.Lifecycle, log logger.Logger) (*PlaywrightManage
 
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
 		Headless: playwright.Bool(true),
-		Args:     []string{"--no-sandbox", "--disable-setuid-sandbox"},
+		Args: []string{
+			"--no-sandbox",
+			"--disable-setuid-sandbox",
+			"--disable-dev-shm-usage", // Important in Docker/container
+			"--disable-accelerated-2d-canvas",
+			"--no-first-run",
+			"--no-zygote",
+			"--single-process", // Use only if really needed, it can affect performance
+			"--disable-gpu",
+		},
 	})
 	if err != nil {
 		_ = pw.Stop()
@@ -63,7 +75,6 @@ func NewPlaywrightManager(lc fx.Lifecycle, log logger.Logger) (*PlaywrightManage
 			return nil
 		},
 	})
-
 	log.Info("Playwright Manager initialized successfully.")
 	return manager, nil
 }
@@ -89,6 +100,57 @@ func New(opts Opts) instagram.Client {
 	}
 }
 
+// newScrapingPage create a new page for scraping data
+func (a *APIAdapter) newScrapingPage(ctx context.Context, url string) (playwright.Page, func(), error) {
+	brContext, err := a.playwright.Browser().NewContext(playwright.BrowserNewContextOptions{
+		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not create browser context: %w", err)
+	}
+
+	cleanup := func() {
+		brContext.Close()
+		debug.FreeOSMemory()
+	}
+
+	if err := setupRequestInterception(brContext); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("failed to set up request interception: %w", err)
+	}
+
+	page, err := brContext.NewPage()
+	if err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("could not create new page: %w", err)
+	}
+
+	gotoOperation := func() error {
+		_, err := page.Goto(url, playwright.PageGotoOptions{Timeout: playwright.Float(60000)})
+		return err
+	}
+
+	err = retry.Do(ctx, a.logger, "PageGoto", gotoOperation, retry.DefaultConfig())
+	if err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("could not goto page '%s' after retries: %w", url, err)
+	}
+
+	return page, cleanup, nil
+}
+
+// setupRequestInterception block unnecessary resources
+func setupRequestInterception(ctx playwright.BrowserContext) error {
+	return ctx.Route("**/*", func(route playwright.Route) {
+		resourceType := route.Request().ResourceType()
+		if resourceType == "image" || resourceType == "stylesheet" || resourceType == "font" || resourceType == "media" {
+			route.Abort()
+		} else {
+			route.Continue()
+		}
+	})
+}
+
 func (a *APIAdapter) GetUserStories(userName string) ([]domain.StoryItem, error) {
 	links, err := a.scrapeStoryLinks(userName)
 	if err != nil {
@@ -110,28 +172,11 @@ func (a *APIAdapter) GetUserHighlights(userName string, processorFunc instagram.
 
 func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
 	a.logger.Info("Scraping stories", "user", userName)
-
-	brContext, err := a.playwright.Browser().NewContext(playwright.BrowserNewContextOptions{
-		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
-	})
+	page, cleanup, err := a.newScrapingPage(context.Background(), "https://instasupersave.com/en/instagram-stories/")
 	if err != nil {
-		return nil, fmt.Errorf("could not create browser context: %w", err)
+		return nil, err
 	}
-	defer brContext.Close()
-
-	page, err := brContext.NewPage()
-	gotoOperation := func() error {
-		_, err := page.Goto("https://instasupersave.com/en/instagram-stories/", playwright.PageGotoOptions{Timeout: playwright.Float(60000)})
-		return err
-	}
-	err = retry.Do(context.Background(), a.logger, "PageGoto", gotoOperation, retry.DefaultConfig())
-	if err != nil {
-		return nil, fmt.Errorf("could not goto page after retries: %w", err)
-	}
-
-	clickOperation := func() error {
-		return page.Click("button.search-form__button")
-	}
+	defer cleanup()
 
 	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
 		return nil, fmt.Errorf("could not type username: %w", err)
@@ -139,6 +184,9 @@ func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
 
 	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
 
+	clickOperation := func() error {
+		return page.Click("button.search-form__button")
+	}
 	err = retry.Do(context.Background(), a.logger, "SearchButtonClick", clickOperation, retry.DefaultConfig())
 	if err != nil {
 		return nil, fmt.Errorf("could not click search button after retries: %w", err)
@@ -161,33 +209,17 @@ func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
 		return nil, fmt.Errorf("could not click stories tab: %w", err)
 	}
 	time.Sleep(2 * time.Second)
-	storyLinks, err := scrollAndExtractAllLinks(page)
-	if err != nil {
-		a.logger.Error("Failed to extract from stories tab", "error", err)
-		return []string{}, nil
-	}
-	return storyLinks, nil
+
+	return scrollAndExtractAllLinks(page)
 }
 
 func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagram.HighlightReelProcessorFunc) error {
 	a.logger.Info("Scraping highlights", "user", userName)
-
-	context, err := a.playwright.Browser().NewContext(playwright.BrowserNewContextOptions{
-		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
-	})
+	page, cleanup, err := a.newScrapingPage(context.Background(), "https://instasupersave.com/en/instagram-stories/")
 	if err != nil {
-		return fmt.Errorf("could not create browser context: %w", err)
+		return err
 	}
-	defer context.Close()
-
-	page, err := context.NewPage()
-	if err != nil {
-		return fmt.Errorf("could not create page: %w", err)
-	}
-
-	if _, err = page.Goto("https://instasupersave.com/en/instagram-stories/", playwright.PageGotoOptions{Timeout: playwright.Float(60000)}); err != nil {
-		return fmt.Errorf("could not goto page: %w", err)
-	}
+	defer cleanup()
 
 	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
 		return fmt.Errorf("could not type username: %w", err)
@@ -195,8 +227,12 @@ func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagr
 
 	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
 
-	if err = page.Click("button.search-form__button"); err != nil {
-		return fmt.Errorf("could not click search button: %w", err)
+	clickOperation := func() error {
+		return page.Click("button.search-form__button")
+	}
+	err = retry.Do(context.Background(), a.logger, "SearchButtonClick", clickOperation, retry.DefaultConfig())
+	if err != nil {
+		return fmt.Errorf("could not click search button after retries: %w", err)
 	}
 
 	combinedSelector := ".output-profile, .error-message"
@@ -311,6 +347,10 @@ func scrollAndExtractAllLinks(page playwright.Page) ([]string, error) {
 	finalLinks := make([]string, 0, len(linksSet))
 	for link := range linksSet {
 		finalLinks = append(finalLinks, link)
+	}
+
+	if len(finalLinks) == 0 {
+		return nil, fmt.Errorf("no media links found after scrolling")
 	}
 
 	return finalLinks, nil
