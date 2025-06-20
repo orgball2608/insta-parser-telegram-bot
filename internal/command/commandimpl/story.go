@@ -14,6 +14,22 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 )
 
+const helpMessage = `👋 *Welcome to the Instagram Parser Bot!*
+
+Here are the available commands:
+
+*AUTOMATIC SUBSCRIPTIONS:*
+/subscribe <username> - Subscribe to a user to get new stories automatically.
+/unsubscribe <username> - Unsubscribe from a user.
+/listsubscriptions - List all your current subscriptions.
+
+*ONE-TIME DOWNLOADS:*
+/story <username> - Fetch all current stories from a user.
+/highlights <username> - Fetch all highlights from a user.
+/post <post_url> - Download a post (photo/video/album) from its URL.
+
+Type /help at any time to see this guide.`
+
 func (c *CommandImpl) HandleCommand(ctx context.Context) error {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -51,9 +67,6 @@ func (c *CommandImpl) HandleCommand(ctx context.Context) error {
 						c.Logger.Error("Error processing command",
 							"command", u.Message.Command(),
 							"error", err)
-
-						_, _ = c.Telegram.SendMessage(u.Message.Chat.ID,
-							fmt.Sprintf("An error occurred: %s", err.Error()))
 					}
 				}
 			}(update)
@@ -67,6 +80,9 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 	chatID := update.Message.Chat.ID
 
 	switch command {
+	case "start", "help":
+		_, err := c.Telegram.SendMessage(chatID, helpMessage)
+		return err
 	case "subscribe":
 		c.handleSubscribe(ctx, chatID, args)
 		return nil
@@ -83,14 +99,7 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 	case "post":
 		return c.handlePostCommand(ctx, update)
 	default:
-		_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
-			"Unknown command. Available commands:\n"+
-				"/story <username> - Get user's current stories\n"+
-				"/highlights <username> - Get user highlights\n"+
-				"/post <post_url> - Get post from URL\n"+
-				"/subscribe <username> - Subscribe to a user's stories\n"+
-				"/unsubscribe <username> - Unsubscribe from a user's stories\n"+
-				"/listsubscriptions - List all subscriptions")
+		_, err := c.Telegram.SendMessage(chatID, "Unknown command. Type /help to see the list of available commands.")
 		return err
 	}
 }
@@ -105,60 +114,43 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 		return err
 	}
 
-	_, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Getting current stories for user: %s...", userName))
+	sentMsgID, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Fetching stories for @%s... ⏳", userName))
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
 
 	stories, err := c.Instagram.GetUserStories(userName)
 	if err != nil {
+		errMsg := fmt.Sprintf("❌ Error fetching stories for @%s: %v", userName, err)
 		if errors.Is(err, instagram.ErrPrivateAccount) {
-			_, _ = c.Telegram.SendMessage(chatID, fmt.Sprintf("Account '%s' is private. I cannot fetch stories.", userName))
-			return nil
+			errMsg = fmt.Sprintf("Account @%s is private, I cannot fetch stories.", userName)
 		}
-		return fmt.Errorf("failed to get stories for %s: %w", userName, err)
+		c.Telegram.EditMessageText(chatID, sentMsgID, errMsg)
+		return err
 	}
 
 	if len(stories) == 0 {
-		_, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("No current stories found for user: %s", userName))
-		return err
+		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("No current stories found for @%s.", userName))
+		return nil
 	}
+
+	c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("✅ Found %d stories for @%s. Sending now...", len(stories), userName))
 
 	if err := c.Parser.ClearCurrentStories(userName); err != nil {
 		c.Logger.Error("Error clearing current stories", "error", err)
 	}
 
-	var processedCount int
 	for _, item := range stories {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("operation timed out")
-		default:
-			if item.MediaURL == "" {
-				continue
-			}
-
-			currentStory := domain.CurrentStory{
-				UserName:  userName,
-				MediaURL:  item.MediaURL,
-				CreatedAt: time.Now(),
-			}
-
-			if err := c.Parser.SaveCurrentStory(currentStory); err != nil {
-				c.Logger.Error("Error saving current story", "error", err)
-				continue
-			}
-
-			if err := c.Telegram.SendMediaByUrl(chatID, item.MediaURL); err != nil {
-				c.Logger.Error("Failed to send story media", "url", item.MediaURL, "error", err)
-			} else {
-				processedCount++
-			}
+		if item.MediaURL == "" {
+			continue
+		}
+		if err := c.Telegram.SendMediaByUrl(chatID, item.MediaURL); err != nil {
+			c.Logger.Error("Failed to send story media", "url", item.MediaURL, "error", err)
 		}
 	}
 
-	_, err = c.Telegram.SendMessage(chatID, fmt.Sprintf("Processed %d current stories for %s", processedCount, userName))
-	return err
+	c.Telegram.SendMessage(chatID, fmt.Sprintf("Finished sending %d stories for @%s.", len(stories), userName))
+	return nil
 }
 
 func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbotapi.Update) error {
@@ -171,17 +163,20 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 		return err
 	}
 
-	_, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Getting highlights for @%s... This may take a while.", userName))
+	sentMsgID, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Fetching highlights for @%s... This may take a while. ⏳", userName))
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
 
 	var processedCount int64
 	var reelsFound bool
+	var totalItems int64
 
 	processor := func(highlightReel domain.HighlightReel) error {
 		reelsFound = true
-		c.Logger.Info("Processing highlight reel", "title", highlightReel.Title, "items", len(highlightReel.Items))
+		totalItems += int64(len(highlightReel.Items))
+
+		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("Processing album '%s' (%d items)... ⏳", highlightReel.Title, len(highlightReel.Items)))
 
 		if len(highlightReel.Items) == 0 {
 			return nil
@@ -237,18 +232,21 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 
 	err = c.Instagram.GetUserHighlights(userName, processor)
 	if err != nil {
+		errMsg := fmt.Sprintf("❌ Error fetching highlights for @%s: %v", userName, err)
 		if errors.Is(err, instagram.ErrPrivateAccount) {
-			_, _ = c.Telegram.SendMessage(chatID, fmt.Sprintf("Account '@%s' is private. I cannot fetch highlights.", userName))
-			return nil
+			errMsg = fmt.Sprintf("Account @%s is private, I cannot fetch highlights.", userName)
 		}
-		return fmt.Errorf("failed to get highlights for @%s: %w", userName, err)
+		c.Telegram.EditMessageText(chatID, sentMsgID, errMsg)
+		return err
 	}
 
+	finalMessage := ""
 	if !reelsFound {
-		_, err = c.Telegram.SendMessage(chatID, fmt.Sprintf("No highlights found for user: @%s", userName))
+		finalMessage = fmt.Sprintf("No highlights found for @%s.", userName)
 	} else {
-		_, err = c.Telegram.SendMessage(chatID, fmt.Sprintf("Finished processing. Sent %d highlight items for @%s.", atomic.LoadInt64(&processedCount), userName))
+		finalMessage = fmt.Sprintf("✅ Finished! Sent %d/%d highlight items for @%s.", atomic.LoadInt64(&processedCount), totalItems, userName)
 	}
+	c.Telegram.EditMessageText(chatID, sentMsgID, finalMessage)
 
-	return err
+	return nil
 }

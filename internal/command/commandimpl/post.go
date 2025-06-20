@@ -18,7 +18,7 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 		return err
 	}
 
-	_, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Getting post from URL: %s...", postURL))
+	sentMsgID, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Fetching post from URL: %s... ⏳", postURL))
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
@@ -28,13 +28,16 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 
 	post, err := c.Instagram.GetUserPost(ctxWithTimeout, postURL)
 	if err != nil {
+		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("❌ Error fetching post: %v", err))
 		return fmt.Errorf("failed to get post from URL: %w", err)
 	}
 
 	if len(post.MediaURLs) == 0 {
-		_, err := c.Telegram.SendMessage(chatID, "Could not find any media in the provided post URL.")
-		return err
+		c.Telegram.EditMessageText(chatID, sentMsgID, "Could not find any media in the provided URL.")
+		return nil
 	}
+
+	c.Telegram.EditMessageText(chatID, sentMsgID, "✅ Successfully fetched post info! Sending media now...")
 
 	mediaGroup := make([]interface{}, 0, len(post.MediaURLs))
 	var captionToSend string
@@ -80,5 +83,5 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 		}
 	}
 
-	return err
+	return nil
 }

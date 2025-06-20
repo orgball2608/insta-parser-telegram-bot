@@ -191,3 +191,16 @@ func safeClose(closer io.ReadCloser, logger logger.Logger) {
 		logger.Error("Error closing response body", "error", err)
 	}
 }
+
+func (tg *TelegramImpl) EditMessageText(chatID int64, messageID int, newText string) error {
+	editMsg := tgbotapi.NewEditMessageText(chatID, messageID, newText)
+	editMsg.ParseMode = tgbotapi.ModeMarkdown
+
+	_, err := tg.TgBot.Send(editMsg)
+	if err != nil {
+		tg.Logger.Error("Error editing message", "chatID", chatID, "messageID", messageID, "error", err)
+		return fmt.Errorf("failed to edit message: %w", err)
+	}
+	tg.Logger.Info("Message edited successfully", "chatID", chatID, "messageID", messageID)
+	return nil
+}
