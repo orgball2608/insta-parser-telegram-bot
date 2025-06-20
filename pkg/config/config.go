@@ -9,12 +9,11 @@ import (
 )
 
 type Config struct {
-	App           AppConfig           `envPrefix:"APP_"`
-	Telegram      TelegramConfig      `envPrefix:"TELEGRAM_"`
-	Instagram     InstagramConfig     `envPrefix:"INSTAGRAM_"`
-	Postgres      PostgresConfig      `envPrefix:"POSTGRES_"`
-	Redis         RedisConfig         `envPrefix:"REDIS_"`
-	ThirdPartyAPI ThirdPartyAPIConfig `envPrefix:"THIRD_PARTY_API_"`
+	App       AppConfig       `envPrefix:"APP_"`
+	Telegram  TelegramConfig  `envPrefix:"TELEGRAM_"`
+	Instagram InstagramConfig `envPrefix:"INSTAGRAM_"`
+	Postgres  PostgresConfig  `envPrefix:"POSTGRES_"`
+	Redis     RedisConfig     `envPrefix:"REDIS_"`
 }
 
 type AppConfig struct {
@@ -50,11 +49,6 @@ type RedisConfig struct {
 	Port     int    `env:"PORT" envDefault:"6379"`
 	Password string `env:"PASSWORD" envDefault:""`
 	DB       int    `env:"DB" envDefault:"0"`
-}
-
-type ThirdPartyAPIConfig struct {
-	BaseURL string `env:"BASE_URL,required"`
-	APIKey  string `env:"API_KEY,required"`
 }
 
 func New() (*Config, error) {

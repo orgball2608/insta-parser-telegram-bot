@@ -55,7 +55,7 @@ func (c *CommandImpl) HandleCommand(ctx context.Context) error {
 							fmt.Sprintf("An error occurred: %s", err.Error()))
 					}
 				}
-			}(update) // Truyền update vào goroutine
+			}(update)
 		}
 	}
 }
@@ -68,11 +68,14 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 		return c.handleStoryCommand(ctx, update)
 	case "highlights":
 		return c.handleHighlightsCommand(ctx, update)
+	case "post":
+		return c.handlePostCommand(ctx, update)
 	default:
 		_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
 			"Unknown command. Available commands:\n"+
 				"/story <username> - Get user's current stories\n"+
-				"/highlights <username> - Get user highlights")
+				"/highlights <username> - Get user highlights\n"+
+				"/post <post_url> - Get post from URL")
 		return err
 	}
 }

@@ -42,3 +42,12 @@ type HighlightReel struct {
 	Title string
 	Items []StoryItem
 }
+
+type PostItem struct {
+	PostURL   string
+	Username  string
+	Caption   string
+	MediaURLs []string
+	IsVideo   bool
+	TakenAt   time.Time
+}
