@@ -9,11 +9,10 @@ import (
 )
 
 type Config struct {
-	App       AppConfig       `envPrefix:"APP_"`
-	Telegram  TelegramConfig  `envPrefix:"TELEGRAM_"`
-	Instagram InstagramConfig `envPrefix:"INSTAGRAM_"`
-	Postgres  PostgresConfig  `envPrefix:"POSTGRES_"`
-	Redis     RedisConfig     `envPrefix:"REDIS_"`
+	App      AppConfig      `envPrefix:"APP_"`
+	Telegram TelegramConfig `envPrefix:"TELEGRAM_"`
+	Postgres PostgresConfig `envPrefix:"POSTGRES_"`
+	Redis    RedisConfig    `envPrefix:"REDIS_"`
 }
 
 type AppConfig struct {
@@ -28,10 +27,6 @@ type TelegramConfig struct {
 	BotToken string `env:"BOT_TOKEN,required"`
 	User     int64  `env:"USER" envDefault:"0"`
 	Channel  string `env:"CHANNEL" envDefault:""`
-}
-
-type InstagramConfig struct {
-	UsersParse string `env:"USERS_PARSE" envDefault:""`
 }
 
 type PostgresConfig struct {

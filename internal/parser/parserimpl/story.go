@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"strings"
 	"sync"
 	"time"
 
@@ -27,28 +26,34 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 	}
 
 	_, err = scheduler.NewJob(
-		gocron.DurationRandomJob(time.Hour*3, time.Hour*24*2),
+		gocron.DurationRandomJob(15*time.Minute, 20*time.Minute),
 		gocron.NewTask(func() {
 			if ctx.Err() != nil {
 				p.Logger.Info("Context cancelled, stopping story parsing schedule")
 				return
 			}
-
-			taskCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+			taskCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 			defer cancel()
 
-			usernames := strings.Split(p.Config.Instagram.UsersParse, ";")
-			p.Logger.Info("Starting scheduled story parsing", "userCount", len(usernames))
+			p.Logger.Info("Starting scheduled story parsing for subscribed users...")
+
+			usernames, err := p.SubscriptionRepo.GetAllUniqueUsernames(taskCtx)
+			if err != nil {
+				p.Logger.Error("Failed to get unique usernames from subscriptions", "error", err)
+				return
+			}
+
+			if len(usernames) == 0 {
+				p.Logger.Info("No users subscribed. Skipping.")
+				return
+			}
+
+			p.Logger.Info("Found users to parse", "count", len(usernames))
 			shuffledUsernames := shuffleUsernames(usernames)
 
 			for i, username := range shuffledUsernames {
-				username = strings.TrimSpace(username)
-				if username == "" {
-					continue
-				}
-
 				if i > 0 {
-					delay := time.Duration(10+rand.Intn(35)) * time.Second
+					delay := time.Duration(10+rand.Intn(20)) * time.Second
 					p.Logger.Info("Waiting before processing next user", "delay", delay.String(), "nextUsername", username)
 					select {
 					case <-taskCtx.Done():
@@ -59,22 +64,10 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 				}
 
 				p.Logger.Info("Parsing stories for user", "username", username)
-				if err := p.ParseUserStories(taskCtx, username); err != nil {
-					p.Logger.Error("Failed to parse stories for user", "username", username, "error", err)
-					time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
-
-					p.Telegram.SendMessageToDefaultChannel(fmt.Sprintf("Failed to parse stories for @%s: %s", username, err.Error()))
+				if err := p.processSubscribedUser(taskCtx, username); err != nil {
+					p.Logger.Error("Failed to process subscribed user", "username", username, "error", err)
 				} else {
-					p.Logger.Info("Successfully parsed stories for user", "username", username)
-				}
-
-				jitter := time.Duration(rand.Intn(10)) * time.Second
-				pauseDuration := 8*time.Second + jitter
-				select {
-				case <-taskCtx.Done():
-					p.Logger.Warn("Context cancelled during story parsing")
-					return
-				case <-time.After(pauseDuration):
+					p.Logger.Info("Successfully processed subscribed user", "username", username)
 				}
 			}
 			p.Logger.Info("Completed scheduled story parsing")
@@ -93,6 +86,69 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 			p.Logger.Error("Failed to shut down scheduler", "error", err)
 		}
 	}()
+
+	return nil
+}
+
+func (p *ParserImpl) processSubscribedUser(ctx context.Context, username string) error {
+	stories, err := p.Instagram.GetUserStories(username)
+	if err != nil {
+		return fmt.Errorf("failed to get stories for %s: %w", username, err)
+	}
+
+	if len(stories) == 0 {
+		p.Logger.Info("No stories found for user", "username", username)
+		return nil
+	}
+
+	var newStories []domain.StoryItem
+	for _, story := range stories {
+		exists, err := p.checkStoryExists(story.MediaURL)
+		if err != nil {
+			p.Logger.Error("Failed to check story existence", "media_url", story.MediaURL, "error", err)
+			continue
+		}
+		if !exists {
+			newStories = append(newStories, story)
+		}
+	}
+
+	if len(newStories) == 0 {
+		p.Logger.Info("No new stories for user", "username", username)
+		return nil
+	}
+
+	p.Logger.Info("Found new stories", "username", username, "count", len(newStories))
+
+	subscriberIDs, err := p.SubscriptionRepo.GetSubscribersForUser(ctx, username)
+	if err != nil {
+		return fmt.Errorf("failed to get subscribers for %s: %w", username, err)
+	}
+
+	if len(subscriberIDs) == 0 {
+		p.Logger.Warn("Found new stories but no one is subscribed", "username", username)
+		return nil
+	}
+
+	for _, story := range newStories {
+		dbStory := domain.Story{
+			StoryID:   story.MediaURL,
+			UserName:  story.Username,
+			CreatedAt: time.Now(),
+		}
+		if err := p.StoryRepo.Create(ctx, dbStory); err != nil {
+			p.Logger.Error("Failed to save story to DB", "story_id", dbStory.StoryID, "error", err)
+			continue
+		}
+
+		for _, chatID := range subscriberIDs {
+			err := p.Telegram.SendMediaByUrl(chatID, story.MediaURL)
+			if err != nil {
+				p.Logger.Error("Failed to send story to subscriber", "chat_id", chatID, "url", story.MediaURL, "error", err)
+			}
+		}
+		time.Sleep(time.Duration(1500+rand.Intn(2000)) * time.Millisecond)
+	}
 
 	return nil
 }

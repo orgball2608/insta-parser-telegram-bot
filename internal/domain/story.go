@@ -9,13 +9,6 @@ type Story struct {
 	CreatedAt time.Time
 }
 
-type Highlights struct {
-	ID        int
-	UserName  string
-	MediaURL  string
-	CreatedAt time.Time
-}
-
 type CurrentStory struct {
 	ID        int
 	UserName  string
@@ -36,18 +29,4 @@ type StoryItem struct {
 	MediaType MediaType
 	TakenAt   time.Time
 	Username  string
-}
-
-type HighlightReel struct {
-	Title string
-	Items []StoryItem
-}
-
-type PostItem struct {
-	PostURL   string
-	Username  string
-	Caption   string
-	MediaURLs []string
-	IsVideo   bool
-	TakenAt   time.Time
 }

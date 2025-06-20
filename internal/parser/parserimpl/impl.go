@@ -6,6 +6,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/currentstory"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/highlights"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/story"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/subscription"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/config"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
@@ -22,6 +23,7 @@ type Opts struct {
 	CurrentStoryRepo currentstory.Repository
 	Logger           logger.Logger
 	Config           *config.Config
+	SubscriptionRepo subscription.Repository
 }
 
 type ParserImpl struct {
@@ -32,6 +34,7 @@ type ParserImpl struct {
 	CurrentStoryRepo currentstory.Repository
 	Logger           logger.Logger
 	Config           *config.Config
+	SubscriptionRepo subscription.Repository
 }
 
 func New(opts Opts) *ParserImpl {
@@ -43,6 +46,7 @@ func New(opts Opts) *ParserImpl {
 		CurrentStoryRepo: opts.CurrentStoryRepo,
 		Logger:           opts.Logger,
 		Config:           opts.Config,
+		SubscriptionRepo: opts.SubscriptionRepo,
 	}
 }
 

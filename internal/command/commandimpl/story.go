@@ -63,8 +63,19 @@ func (c *CommandImpl) HandleCommand(ctx context.Context) error {
 
 func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update) error {
 	command := update.Message.Command()
+	args := update.Message.CommandArguments()
+	chatID := update.Message.Chat.ID
 
 	switch command {
+	case "subscribe":
+		c.handleSubscribe(ctx, chatID, args)
+		return nil
+	case "unsubscribe":
+		c.handleUnsubscribe(ctx, chatID, args)
+		return nil
+	case "listsubscriptions":
+		c.handleListSubscriptions(ctx, chatID)
+		return nil
 	case "story":
 		return c.handleStoryCommand(ctx, update)
 	case "highlights":
@@ -76,7 +87,10 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 			"Unknown command. Available commands:\n"+
 				"/story <username> - Get user's current stories\n"+
 				"/highlights <username> - Get user highlights\n"+
-				"/post <post_url> - Get post from URL")
+				"/post <post_url> - Get post from URL\n"+
+				"/subscribe <username> - Subscribe to a user's stories\n"+
+				"/unsubscribe <username> - Unsubscribe from a user's stories\n"+
+				"/listsubscriptions - List all subscriptions")
 		return err
 	}
 }
