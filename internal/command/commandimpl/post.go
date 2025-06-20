@@ -37,18 +37,45 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 		return err
 	}
 
-	var captionToSend string
-	if post.Caption != "" {
-		if post.Username != "" {
-			captionToSend = fmt.Sprintf("From @%s:\n\n%s", post.Username, post.Caption)
+	mediaGroup := make([]interface{}, 0, len(post.MediaURLs))
+
+	for i, mediaURL := range post.MediaURLs {
+		var mediaItem tgbotapi.RequestFileData = tgbotapi.FileURL(mediaURL)
+
+		if strings.Contains(mediaURL, ".mp4") {
+			video := tgbotapi.NewInputMediaVideo(mediaItem)
+			if i == 0 && post.Caption != "" {
+				if post.Username != "" {
+					video.Caption = fmt.Sprintf("From @%s:\n\n%s", post.Username, post.Caption)
+				} else {
+					video.Caption = post.Caption
+				}
+			}
+			mediaGroup = append(mediaGroup, video)
 		} else {
-			captionToSend = post.Caption
+			photo := tgbotapi.NewInputMediaPhoto(mediaItem)
+			if i == 0 && post.Caption != "" {
+				if post.Username != "" {
+					photo.Caption = fmt.Sprintf("From @%s:\n\n%s", post.Username, post.Caption)
+				} else {
+					photo.Caption = post.Caption
+				}
+			}
+			mediaGroup = append(mediaGroup, photo)
 		}
-		c.Telegram.SendMessageToChanel(captionToSend)
 	}
 
-	for _, mediaURL := range post.MediaURLs {
-		c.Telegram.SendMediaToChanelByUrl(mediaURL)
+	if len(mediaGroup) > 0 {
+		if err := c.Telegram.SendMediaGroup(mediaGroup); err != nil {
+			c.Logger.Error("Failed to send media group, falling back to individual sending", "error", err)
+
+			if post.Caption != "" {
+				c.Telegram.SendMessageToChanel(fmt.Sprintf("From @%s:\n\n%s", post.Username, post.Caption))
+			}
+			for _, mediaURL := range post.MediaURLs {
+				c.Telegram.SendMediaToChanelByUrl(mediaURL)
+			}
+		}
 	}
 
 	_, err = c.Telegram.SendMessage(update.Message.Chat.ID,

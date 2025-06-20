@@ -12,4 +12,5 @@ type Client interface {
 	SendMediaToChanelByUrl(url string)
 	SendMessage(chatID int64, text string) (int, error)
 	StopReceivingUpdates()
+	SendMediaGroup(media []interface{}) error
 }

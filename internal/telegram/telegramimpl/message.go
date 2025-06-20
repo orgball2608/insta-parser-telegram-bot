@@ -164,8 +164,6 @@ func (tg *TelegramImpl) GetUpdatesChan(u tgbotapi.UpdateConfig) tgbotapi.Updates
 	return tg.TgBot.GetUpdatesChan(u)
 }
 
-// Helper functions
-
 // getMediaTypeName returns the string name of a media type
 func getMediaTypeName(dataType int) string {
 	switch dataType {
@@ -187,4 +185,30 @@ func safeClose(closer io.ReadCloser, logger logger.Logger) {
 
 func (tg *TelegramImpl) StopReceivingUpdates() {
 	tg.TgBot.StopReceivingUpdates()
+}
+
+// SendMediaGroup sends a group of photos or videos as an album.
+func (tg *TelegramImpl) SendMediaGroup(media []interface{}) error {
+	if len(media) == 0 {
+		return nil
+	}
+	if len(media) > 10 {
+		tg.Logger.Warn("Attempted to send more than 10 media items in a group", "count", len(media))
+		media = media[:10]
+	}
+
+	channelName := "@" + tg.Config.Telegram.Channel
+	tg.Logger.Info("Sending media group to channel", "channel", channelName, "count", len(media))
+
+	msg := tgbotapi.NewMediaGroup(0, media)
+	msg.ChannelUsername = channelName
+
+	_, err := tg.TgBot.Request(msg)
+	if err != nil {
+		tg.Logger.Error("Error sending media group via bot.Request", "channel", channelName, "error", err)
+		return fmt.Errorf("failed to send media group: %w", err)
+	}
+
+	tg.Logger.Info("Successfully sent media group", "channel", channelName)
+	return nil
 }

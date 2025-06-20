@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -155,7 +156,7 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 }
 
 func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbotapi.Update) error {
-	args := strings.TrimSpace(strings.TrimPrefix(update.Message.Text, "/highlights"))
+	args := strings.TrimSpace(update.Message.CommandArguments())
 	userName := strings.TrimSpace(args)
 
 	if userName == "" {
@@ -164,17 +165,15 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 		return err
 	}
 
-	_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
-		fmt.Sprintf("Getting highlights for user: %s... This may take a while.", userName))
+	initialMsg, err := c.Telegram.SendMessage(update.Message.Chat.ID,
+		fmt.Sprintf("Getting highlights for @%s... This may take a while.", userName))
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
+	_ = initialMsg
 
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 15*time.Minute)
-	defer cancel()
-
-	var processedCount int64 = 0
-	var reelsFound bool = false
+	var processedCount int64
+	var reelsFound bool
 
 	processor := func(highlightReel domain.HighlightReel) error {
 		reelsFound = true
@@ -184,53 +183,73 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 			return nil
 		}
 
-		select {
-		case <-ctxWithTimeout.Done():
-			return fmt.Errorf("operation timed out")
-		default:
-			c.Telegram.SendMessageToChanel(fmt.Sprintf("Stories for highlight: %s", highlightReel.Title))
+		mediaGroup := make([]interface{}, 0, len(highlightReel.Items))
+		caption := fmt.Sprintf("Highlight: %s", highlightReel.Title)
 
-			for _, item := range highlightReel.Items {
-				if item.MediaURL == "" {
-					continue
-				}
-
-				highlightItem := domain.Highlights{
-					UserName:  userName,
-					MediaURL:  item.MediaURL,
-					CreatedAt: time.Now(),
-				}
-
-				if err := c.Parser.SaveHighlight(highlightItem); err != nil {
-					c.Logger.Error("Error saving highlight", "error", err)
-					continue
-				}
-
-				c.Telegram.SendMediaToChanelByUrl(item.MediaURL)
-				processedCount++
+		for i, item := range highlightReel.Items {
+			if item.MediaURL == "" {
+				continue
 			}
-			return nil
+
+			highlightItem := domain.Highlights{
+				UserName:  userName,
+				MediaURL:  item.MediaURL,
+				CreatedAt: time.Now(),
+			}
+			if err := c.Parser.SaveHighlight(highlightItem); err != nil {
+				c.Logger.Error("Error saving highlight to DB", "url", item.MediaURL, "error", err)
+			}
+
+			var mediaItem tgbotapi.RequestFileData = tgbotapi.FileURL(item.MediaURL)
+
+			if strings.Contains(item.MediaURL, ".mp4") {
+				video := tgbotapi.NewInputMediaVideo(mediaItem)
+				if i == 0 {
+					video.Caption = caption
+				}
+				mediaGroup = append(mediaGroup, video)
+			} else {
+				photo := tgbotapi.NewInputMediaPhoto(mediaItem)
+				if i == 0 {
+					photo.Caption = caption
+				}
+				mediaGroup = append(mediaGroup, photo)
+			}
 		}
+
+		if len(mediaGroup) > 0 {
+			if err := c.Telegram.SendMediaGroup(mediaGroup); err != nil {
+				c.Logger.Error("Failed to send highlight media group, falling back to individual sending", "title", highlightReel.Title, "error", err)
+
+				c.Telegram.SendMessageToChanel(caption)
+				for _, item := range highlightReel.Items {
+					c.Telegram.SendMediaToChanelByUrl(item.MediaURL)
+				}
+			}
+		}
+
+		atomic.AddInt64(&processedCount, int64(len(highlightReel.Items)))
+		return nil
 	}
 
 	err = c.Instagram.GetUserHighlights(userName, processor)
 	if err != nil {
 		if errors.Is(err, instagram.ErrPrivateAccount) {
 			_, _ = c.Telegram.SendMessage(update.Message.Chat.ID,
-				fmt.Sprintf("Account '%s' is private. I cannot fetch highlights.", userName))
+				fmt.Sprintf("Account '@%s' is private. I cannot fetch highlights.", userName))
 			return nil
 		}
-		return fmt.Errorf("failed to get highlights for %s: %w", userName, err)
+
+		return fmt.Errorf("failed to get highlights for @%s: %w", userName, err)
 	}
 
 	if !reelsFound {
-		_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
-			fmt.Sprintf("No highlights found for user: %s", userName))
-		return err
+		_, err = c.Telegram.SendMessage(update.Message.Chat.ID,
+			fmt.Sprintf("No highlights found for user: @%s", userName))
+	} else {
+		_, err = c.Telegram.SendMessage(update.Message.Chat.ID,
+			fmt.Sprintf("Finished processing. Sent %d highlight items for @%s.", atomic.LoadInt64(&processedCount), userName))
 	}
-
-	_, err = c.Telegram.SendMessage(update.Message.Chat.ID,
-		fmt.Sprintf("Finished processing. Sent %d highlight items for %s", processedCount, userName))
 
 	return err
 }

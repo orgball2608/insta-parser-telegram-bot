@@ -140,17 +140,20 @@ func startServices(
 		OnStart: func(ctx context.Context) error {
 			log.Info("Starting services...")
 
-			// Start HTTP Server
+			g.Go(func() error {
+				log.Info("Starting HTTP server", "addr", server.server.Addr)
+				if err := server.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					return fmt.Errorf("http server failed: %w", err)
+				}
+				return nil
+			})
+
 			g.Go(func() error {
 				return cmdClient.HandleCommand(gCtx)
 			})
 
 			g.Go(func() error {
 				return pClient.ScheduleParseStories(gCtx)
-			})
-
-			g.Go(func() error {
-				return cmdClient.HandleCommand(gCtx)
 			})
 
 			// Goroutine to wait for the first service to fail and initiate shutdown
