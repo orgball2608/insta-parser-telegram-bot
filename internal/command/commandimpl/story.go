@@ -27,6 +27,7 @@ Here are the available commands:
 /story <username> - Fetch all current stories from a user.
 /highlights <username> - Fetch all highlights from a user.
 /post <post_url> - Download a post (photo/video/album) from its URL.
+/reel <reel_url> - Download a Reel from its URL.
 
 Type /help at any time to see this guide.`
 
@@ -98,13 +99,15 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 		return c.handleHighlightsCommand(ctx, update)
 	case "post":
 		return c.handlePostCommand(ctx, update)
+	case "reel":
+		return c.handleReelCommand(ctx, update)
 	default:
 		_, err := c.Telegram.SendMessage(chatID, "Unknown command. Type /help to see the list of available commands.")
 		return err
 	}
 }
 
-func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Update) error {
+func (c *CommandImpl) handleStoryCommand(_ context.Context, update tgbotapi.Update) error {
 	args := strings.TrimSpace(update.Message.CommandArguments())
 	userName := strings.TrimSpace(args)
 	chatID := update.Message.Chat.ID

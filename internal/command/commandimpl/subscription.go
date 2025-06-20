@@ -13,7 +13,7 @@ import (
 func (c *CommandImpl) handleSubscribe(ctx context.Context, chatID int64, args string) {
 	username := subscription.SanitizeUsername(args)
 	if username == "" {
-		c.Telegram.SendMessage(chatID, "Vui lòng nhập username. Ví dụ: /subscribe <username>")
+		c.Telegram.SendMessage(chatID, "Please provide a username. Usage: /subscribe <username>")
 		return
 	}
 
@@ -25,53 +25,53 @@ func (c *CommandImpl) handleSubscribe(ctx context.Context, chatID int64, args st
 	err := c.SubscriptionRepo.Create(ctx, sub)
 	if err != nil {
 		if errors.Is(err, subscription.ErrAlreadyExists) {
-			c.Telegram.SendMessage(chatID, fmt.Sprintf("Bạn đã đăng ký theo dõi @%s từ trước.", username))
+			c.Telegram.SendMessage(chatID, fmt.Sprintf("You are already subscribed to @%s.", username))
 		} else {
 			c.Logger.Error("Failed to create subscription", "error", err)
-			c.Telegram.SendMessage(chatID, "Đã có lỗi xảy ra. Vui lòng thử lại sau.")
+			c.Telegram.SendMessage(chatID, "An error occurred. Please try again later.")
 		}
 		return
 	}
 
-	c.Telegram.SendMessage(chatID, fmt.Sprintf("✅ Đăng ký thành công! Bạn sẽ nhận được story mới từ @%s.", username))
+	c.Telegram.SendMessage(chatID, fmt.Sprintf("✅ Successfully subscribed! You will now receive new stories from @%s.", username))
 }
 
 func (c *CommandImpl) handleUnsubscribe(ctx context.Context, chatID int64, args string) {
 	username := subscription.SanitizeUsername(args)
 	if username == "" {
-		c.Telegram.SendMessage(chatID, "Vui lòng nhập username. Ví dụ: /unsubscribe <username>")
+		c.Telegram.SendMessage(chatID, "Please provide a username. Usage: /unsubscribe <username>")
 		return
 	}
 
 	err := c.SubscriptionRepo.Delete(ctx, chatID, username)
 	if err != nil {
 		if errors.Is(err, subscription.ErrNotFound) {
-			c.Telegram.SendMessage(chatID, fmt.Sprintf("Bạn chưa đăng ký theo dõi @%s.", username))
+			c.Telegram.SendMessage(chatID, fmt.Sprintf("You are not subscribed to @%s.", username))
 		} else {
 			c.Logger.Error("Failed to delete subscription", "error", err)
-			c.Telegram.SendMessage(chatID, "Đã có lỗi xảy ra. Vui lòng thử lại sau.")
+			c.Telegram.SendMessage(chatID, "An error occurred. Please try again later.")
 		}
 		return
 	}
 
-	c.Telegram.SendMessage(chatID, fmt.Sprintf("Đã hủy theo dõi @%s.", username))
+	c.Telegram.SendMessage(chatID, fmt.Sprintf("Successfully unsubscribed from @%s.", username))
 }
 
 func (c *CommandImpl) handleListSubscriptions(ctx context.Context, chatID int64) {
 	subs, err := c.SubscriptionRepo.GetByChatID(ctx, chatID)
 	if err != nil {
 		c.Logger.Error("Failed to get subscriptions", "error", err)
-		c.Telegram.SendMessage(chatID, "Đã có lỗi xảy ra khi lấy danh sách.")
+		c.Telegram.SendMessage(chatID, "An error occurred while fetching your subscriptions.")
 		return
 	}
 
 	if len(subs) == 0 {
-		c.Telegram.SendMessage(chatID, "Bạn chưa đăng ký theo dõi tài khoản nào. Dùng /subscribe để bắt đầu.")
+		c.Telegram.SendMessage(chatID, "You are not subscribed to any accounts. Use /subscribe to start.")
 		return
 	}
 
 	var builder strings.Builder
-	builder.WriteString("📝 **Danh sách bạn đang theo dõi:**\n")
+	builder.WriteString("📝 *You are currently subscribed to:* \n")
 	for i, sub := range subs {
 		builder.WriteString(fmt.Sprintf("%d. @%s\n", i+1, sub.InstagramUsername))
 	}

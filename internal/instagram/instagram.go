@@ -15,4 +15,5 @@ type Client interface {
 	GetUserStories(userName string) ([]domain.StoryItem, error)
 	GetUserHighlights(userName string, processorFunc HighlightReelProcessorFunc) error
 	GetUserPost(ctx context.Context, postURL string) (*domain.PostItem, error)
+	GetUserReel(ctx context.Context, reelURL string) (*domain.PostItem, error)
 }

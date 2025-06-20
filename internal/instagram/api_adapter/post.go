@@ -13,51 +13,73 @@ import (
 )
 
 func (a *APIAdapter) GetUserPost(ctx context.Context, postURL string) (*domain.PostItem, error) {
-	return a.scrapePost(ctx, postURL)
+	return a.scrapeMedia(ctx, postURL, "post")
 }
 
-func (a *APIAdapter) scrapePost(ctx context.Context, postURL string) (*domain.PostItem, error) {
-	a.logger.Info("Scraping post", "url", postURL)
-	page, cleanup, err := a.newScrapingPage(ctx, "https://instasupersave.com/en/instagram-story-viewer/")
+func (a *APIAdapter) scrapeMedia(ctx context.Context, mediaURL string, mediaType string) (*domain.PostItem, error) {
+	a.logger.Info("Scraping media", "type", mediaType, "url", mediaURL)
+
+	scraperURL := "https://instasupersave.com/en/instagram-video/"
+
+	page, cleanup, err := a.newScrapingPage(ctx, scraperURL)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
 
-	if err = page.Type("#search-form-input", postURL, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
-		return nil, fmt.Errorf("could not type post URL: %w", err)
+	cookieButtonSelector := "button.button.cookie-policy__button"
+	if isVisible, _ := page.IsVisible(cookieButtonSelector); isVisible {
+		a.logger.Info("Cookie policy button found, clicking it.")
+		if err := page.Click(cookieButtonSelector, playwright.PageClickOptions{Timeout: playwright.Float(5000)}); err != nil {
+			a.logger.Warn("Could not click cookie policy button, proceeding anyway.", "error", err)
+		}
 	}
-	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
+
+	inputSelector := "#search-form-input"
+	submitButtonSelector := "button.search-form__button"
+	timeout := float64(30000)
+
+	if _, err = page.WaitForSelector(inputSelector, playwright.PageWaitForSelectorOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(timeout),
+	}); err != nil {
+		return nil, fmt.Errorf("input field '%s' not visible: %w", inputSelector, err)
+	}
+
+	if err = page.Type(inputSelector, mediaURL, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
+		return nil, fmt.Errorf("could not type %s URL: %w", mediaType, err)
+	}
+
+	time.Sleep(time.Duration(500+rand.Intn(500)) * time.Millisecond)
 
 	clickOperation := func() error {
-		return page.Click("button.search-form__button")
+		return page.Click(submitButtonSelector)
 	}
-	if err = retry.Do(ctx, a.logger, "SearchPostClick", clickOperation, retry.DefaultConfig()); err != nil {
-		return nil, fmt.Errorf("could not click search button for post: %w", err)
+	if err = retry.Do(ctx, a.logger, "SearchMediaClick", clickOperation, retry.DefaultConfig()); err != nil {
+		return nil, fmt.Errorf("could not click search button for %s: %w", mediaType, err)
 	}
 
-	resultSelector := "div.output-list, .error-message"
+	resultSelector := "div.output-list, .output-component, .error-message"
 	if _, err = page.WaitForSelector(resultSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(90000)}); err != nil {
-		screenshotPath := fmt.Sprintf("tmp/error_screenshot_post_%d.png", time.Now().Unix())
+		screenshotPath := fmt.Sprintf("tmp/error_screenshot_%s_%d.png", mediaType, time.Now().Unix())
 		page.Screenshot(playwright.PageScreenshotOptions{Path: playwright.String(screenshotPath), FullPage: playwright.Bool(true)})
-		a.logger.Error("Timeout waiting for post result, screenshot saved", "path", screenshotPath, "error", err)
-		return nil, fmt.Errorf("post results or error message did not load in time: %w", err)
+		a.logger.Error("Timeout waiting for media result, screenshot saved", "path", screenshotPath, "error", err)
+		return nil, fmt.Errorf("%s results or error message did not load in time: %w", mediaType, err)
 	}
 
-	isError, _ := page.IsVisible(".error-message")
-	if isError {
+	if isError, _ := page.IsVisible(".error-message"); isError {
 		errorText, _ := page.InnerText(".error-message")
-		a.logger.Warn("Error message displayed for post", "url", postURL, "message", errorText)
-		return nil, fmt.Errorf("failed to get post: %s", errorText)
+		a.logger.Warn("Error message displayed for media", "url", mediaURL, "message", errorText)
+		return nil, fmt.Errorf("failed to get %s: %s", mediaType, errorText)
 	}
 
-	postItem := &domain.PostItem{PostURL: postURL}
+	mediaItem := &domain.PostItem{PostURL: mediaURL}
 
-	caption, err := page.InnerText("div.output-list__caption p")
+	caption, err := page.InnerText(".output-list__caption p, .output-list__info-text")
 	if err == nil {
-		postItem.Caption = caption
+		mediaItem.Caption = caption
 	} else {
-		a.logger.Warn("Could not find post caption", "url", postURL, "error", err)
+		a.logger.Warn("Could not find media caption", "url", mediaURL, "error", err)
 	}
 
 	downloadLocators, err := page.Locator("a.button__download").All()
@@ -76,15 +98,19 @@ func (a *APIAdapter) scrapePost(ctx context.Context, postURL string) (*domain.Po
 			mediaURLs = append(mediaURLs, href)
 		}
 	}
-	postItem.MediaURLs = mediaURLs
+	mediaItem.MediaURLs = mediaURLs
 
-	for _, url := range mediaURLs {
-		if strings.Contains(url, ".mp4") {
-			postItem.IsVideo = true
-			break
+	if mediaType == "reel" {
+		mediaItem.IsVideo = true
+	} else {
+		for _, url := range mediaURLs {
+			if strings.Contains(url, ".mp4") {
+				mediaItem.IsVideo = true
+				break
+			}
 		}
 	}
 
-	a.logger.Info("Successfully scraped post", "url", postURL, "media_count", len(postItem.MediaURLs))
-	return postItem, nil
+	a.logger.Info("Successfully scraped media", "type", mediaType, "url", mediaURL, "media_count", len(mediaItem.MediaURLs))
+	return mediaItem, nil
 }
