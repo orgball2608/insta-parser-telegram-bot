@@ -1,7 +1,10 @@
 package commandimpl
 
 import (
+	"context"
+	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/command"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
@@ -10,6 +13,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/config"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
 	"go.uber.org/fx"
 )
 
@@ -80,4 +84,33 @@ func formatNumber(n int) string {
 		return "-" + string(res)
 	}
 	return string(res)
+}
+
+func (c *CommandImpl) doWithRetryNotify(
+	ctx context.Context,
+	chatID int64,
+	messageID int,
+	initialMessage string,
+	operationName string,
+	operation func() error,
+) error {
+	var attempt int
+	notifyFunc := func(err error, d time.Duration) {
+		attempt++
+		c.Logger.Warn(
+			"Operation failed, retrying...",
+			"operation", operationName,
+			"attempt", attempt,
+			"error", err,
+			"next_attempt_in", d.Round(time.Millisecond).String(),
+		)
+
+		c.Telegram.EditMessageText(
+			chatID,
+			messageID,
+			fmt.Sprintf("%s\n\n_Operation failed, retrying... (Attempt %d)_", initialMessage, attempt),
+		)
+	}
+
+	return retry.RetryWithCustomNotify(ctx, operationName, operation, retry.DefaultConfig(), notifyFunc)
 }

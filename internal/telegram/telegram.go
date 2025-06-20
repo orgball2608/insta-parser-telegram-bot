@@ -9,6 +9,7 @@ type Client interface {
 	StopReceivingUpdates()
 
 	SendMessage(chatID int64, text string) (int, error)
+	SendMessageWithParseMode(chatID int64, text string, parseMode string) (int, error)
 	SendMediaByUrl(chatID int64, url string) error
 	SendMediaGroup(chatID int64, media []interface{}) error
 	EditMessageText(chatID int64, messageID int, newText string) error

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 )
 
 func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Update) error {
@@ -18,7 +19,8 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 		return err
 	}
 
-	sentMsgID, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Fetching post from URL: %s... ⏳", postURL))
+	initialMessage := fmt.Sprintf("Fetching post from URL: %s... ⏳", postURL)
+	sentMsgID, err := c.Telegram.SendMessage(chatID, initialMessage)
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
@@ -26,7 +28,16 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	post, err := c.Instagram.GetUserPost(ctxWithTimeout, postURL)
+	var post *domain.PostItem
+
+	op := func() error {
+		var opErr error
+		post, opErr = c.Instagram.GetUserPost(ctxWithTimeout, postURL)
+		return opErr
+	}
+
+	err = c.doWithRetryNotify(ctx, chatID, sentMsgID, initialMessage, "GetUserPost", op)
+
 	if err != nil {
 		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("❌ Error fetching post: %v", err))
 		return fmt.Errorf("failed to get post from URL: %w", err)

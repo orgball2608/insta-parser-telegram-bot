@@ -107,7 +107,7 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 	}
 }
 
-func (c *CommandImpl) handleStoryCommand(_ context.Context, update tgbotapi.Update) error {
+func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Update) error {
 	args := strings.TrimSpace(update.Message.CommandArguments())
 	userName := strings.TrimSpace(args)
 	chatID := update.Message.Chat.ID
@@ -117,12 +117,20 @@ func (c *CommandImpl) handleStoryCommand(_ context.Context, update tgbotapi.Upda
 		return err
 	}
 
-	sentMsgID, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Fetching stories for @%s... ⏳", userName))
+	initialMessage := fmt.Sprintf("Fetching stories for @%s... ⏳", userName)
+	sentMsgID, err := c.Telegram.SendMessage(chatID, initialMessage)
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
 
-	stories, err := c.Instagram.GetUserStories(userName)
+	var stories []domain.StoryItem
+	op := func() error {
+		var opErr error
+		stories, opErr = c.Instagram.GetUserStories(userName)
+		return opErr
+	}
+
+	err = c.doWithRetryNotify(ctx, chatID, sentMsgID, initialMessage, "GetUserStories", op)
 	if err != nil {
 		errMsg := fmt.Sprintf("❌ Error fetching stories for @%s: %v", userName, err)
 		if errors.Is(err, instagram.ErrPrivateAccount) {
@@ -166,7 +174,8 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 		return err
 	}
 
-	sentMsgID, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Fetching highlights for @%s... This may take a while. ⏳", userName))
+	initialMessage := fmt.Sprintf("Fetching highlights for @%s... This may take a while. ⏳", userName)
+	sentMsgID, err := c.Telegram.SendMessage(chatID, initialMessage)
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
@@ -233,7 +242,11 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 		return nil
 	}
 
-	err = c.Instagram.GetUserHighlights(userName, processor)
+	op := func() error {
+		return c.Instagram.GetUserHighlights(userName, processor)
+	}
+
+	err = c.doWithRetryNotify(ctx, chatID, sentMsgID, initialMessage, "GetUserHighlights", op)
 	if err != nil {
 		errMsg := fmt.Sprintf("❌ Error fetching highlights for @%s: %v", userName, err)
 		if errors.Is(err, instagram.ErrPrivateAccount) {

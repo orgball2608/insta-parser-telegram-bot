@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 )
 
 func (c *CommandImpl) handleReelCommand(ctx context.Context, update tgbotapi.Update) error {
@@ -18,7 +19,8 @@ func (c *CommandImpl) handleReelCommand(ctx context.Context, update tgbotapi.Upd
 		return err
 	}
 
-	sentMsgID, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Fetching Reel from URL: %s... ⏳", reelURL))
+	initialMessage := fmt.Sprintf("Fetching Reel from URL: %s... ⏳", reelURL)
+	sentMsgID, err := c.Telegram.SendMessage(chatID, initialMessage)
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
@@ -26,7 +28,16 @@ func (c *CommandImpl) handleReelCommand(ctx context.Context, update tgbotapi.Upd
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	reel, err := c.Instagram.GetUserReel(ctxWithTimeout, reelURL)
+	var reel *domain.PostItem
+
+	op := func() error {
+		var opErr error
+		reel, opErr = c.Instagram.GetUserReel(ctxWithTimeout, reelURL)
+		return opErr
+	}
+
+	err = c.doWithRetryNotify(ctx, chatID, sentMsgID, initialMessage, "GetUserReel", op)
+
 	if err != nil {
 		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("❌ Error fetching Reel: %v", err))
 		return fmt.Errorf("failed to get Reel from URL: %w", err)

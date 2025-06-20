@@ -204,3 +204,15 @@ func (tg *TelegramImpl) EditMessageText(chatID int64, messageID int, newText str
 	tg.Logger.Info("Message edited successfully", "chatID", chatID, "messageID", messageID)
 	return nil
 }
+
+func (tg *TelegramImpl) SendMessageWithParseMode(chatID int64, text string, parseMode string) (int, error) {
+	msg := tgbotapi.NewMessage(chatID, text)
+	msg.ParseMode = parseMode
+	sentMsg, err := tg.TgBot.Send(msg)
+	if err != nil {
+		tg.Logger.Error("Error sending message with parse mode", "chatID", chatID, "error", err)
+		return 0, fmt.Errorf("failed to send message: %w", err)
+	}
+	tg.Logger.Info("Message with parse mode sent", "chatID", chatID, "messageID", sentMsg.MessageID)
+	return sentMsg.MessageID, nil
+}

@@ -45,3 +45,16 @@ func Do(ctx context.Context, log logger.Logger, operationName string, operation 
 
 	return backoff.RetryNotify(operation, retryableWithContext, notify)
 }
+
+func RetryWithCustomNotify(ctx context.Context, operationName string, operation func() error, cfg Config, notify func(error, time.Duration)) error {
+	bo := backoff.NewExponentialBackOff()
+	bo.InitialInterval = cfg.InitialInterval
+	bo.MaxInterval = cfg.MaxInterval
+	bo.Multiplier = cfg.Multiplier
+	bo.Reset()
+
+	retryable := backoff.WithMaxRetries(bo, cfg.MaxRetries)
+	retryableWithContext := backoff.WithContext(retryable, ctx)
+
+	return backoff.RetryNotify(operation, retryableWithContext, notify)
+}
