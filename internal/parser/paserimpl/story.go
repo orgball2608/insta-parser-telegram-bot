@@ -4,15 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math/rand"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	storyRepo "github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/story"
 )
@@ -65,7 +62,8 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 				if err := p.ParseUserStories(taskCtx, username); err != nil {
 					p.Logger.Error("Failed to parse stories for user", "username", username, "error", err)
 					time.Sleep(time.Duration(2+rand.Intn(3)) * time.Second)
-					p.Telegram.SendMessageToUser(fmt.Sprintf("Failed to parse stories for %s: %s", username, err.Error()))
+
+					p.Telegram.SendMessageToDefaultChannel(fmt.Sprintf("Failed to parse stories for @%s: %s", username, err.Error()))
 				} else {
 					p.Logger.Info("Successfully parsed stories for user", "username", username)
 				}
@@ -236,58 +234,12 @@ func (p *ParserImpl) processStoryItem(item domain.StoryItem) error {
 		return fmt.Errorf("failed to save story: %w", err)
 	}
 
-	mediaType := 1
-	if item.MediaType == domain.MediaTypeVideo {
-		mediaType = 2
-	}
-
 	p.Logger.Info("Processing media item", "username", item.Username, "url", item.MediaURL, "type", item.MediaType)
-	if err := p.downloadAndSendMedia(item.MediaURL, mediaType); err != nil {
-		return fmt.Errorf("failed to process media item: %w", err)
-	}
+	p.Telegram.SendMediaToDefaultChannelByUrl(item.MediaURL)
 
 	delay := time.Duration(1500+rand.Intn(2000)) * time.Millisecond
 	p.Logger.Info("Scheduled job: Waiting to avoid rate limit", "delay", delay)
 	time.Sleep(delay)
-	return nil
-}
-
-func (p *ParserImpl) downloadAndSendMedia(url string, mediaType int) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	client := &http.Client{}
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to download media: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download media, status code: %d", resp.StatusCode)
-	}
-
-	mediaData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read media data: %w", err)
-	}
-	if len(mediaData) == 0 {
-		return fmt.Errorf("empty media data")
-	}
-
-	fileBytes := tgbotapi.FileBytes{
-		Name:  "media",
-		Bytes: mediaData,
-	}
-
-	if err := p.Telegram.SendFileToChannel(fileBytes, mediaType); err != nil {
-		return fmt.Errorf("failed to send media to Telegram: %w", err)
-	}
 	return nil
 }
 

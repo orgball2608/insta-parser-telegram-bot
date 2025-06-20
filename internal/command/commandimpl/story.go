@@ -82,39 +82,31 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 }
 
 func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Update) error {
-	args := strings.TrimSpace(strings.TrimPrefix(update.Message.Text, "/story"))
+	args := strings.TrimSpace(update.Message.CommandArguments())
 	userName := strings.TrimSpace(args)
+	chatID := update.Message.Chat.ID
 
 	if userName == "" {
-		_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
-			"Please provide a username: /story <username>")
+		_, err := c.Telegram.SendMessage(chatID, "Please provide a username: /story <username>")
 		return err
 	}
 
-	_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
-		fmt.Sprintf("Getting current stories for user: %s...", userName))
+	_, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Getting current stories for user: %s...", userName))
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
 
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 15*time.Minute)
-	defer cancel()
-
 	stories, err := c.Instagram.GetUserStories(userName)
 	if err != nil {
 		if errors.Is(err, instagram.ErrPrivateAccount) {
-			_, _ = c.Telegram.SendMessage(update.Message.Chat.ID,
-				fmt.Sprintf("Account '%s' is private. I cannot fetch stories.", userName))
+			_, _ = c.Telegram.SendMessage(chatID, fmt.Sprintf("Account '%s' is private. I cannot fetch stories.", userName))
 			return nil
 		}
 		return fmt.Errorf("failed to get stories for %s: %w", userName, err)
 	}
 
-	c.Logger.Info("Retrieved stories", "username", userName, "count", len(stories))
-
 	if len(stories) == 0 {
-		_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
-			fmt.Sprintf("No current stories found for user: %s", userName))
+		_, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("No current stories found for user: %s", userName))
 		return err
 	}
 
@@ -122,11 +114,10 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 		c.Logger.Error("Error clearing current stories", "error", err)
 	}
 
-	processedCount := 0
-
+	var processedCount int
 	for _, item := range stories {
 		select {
-		case <-ctxWithTimeout.Done():
+		case <-ctx.Done():
 			return fmt.Errorf("operation timed out")
 		default:
 			if item.MediaURL == "" {
@@ -144,33 +135,32 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 				continue
 			}
 
-			c.Telegram.SendMediaToChanelByUrl(item.MediaURL)
-			processedCount++
+			if err := c.Telegram.SendMediaByUrl(chatID, item.MediaURL); err != nil {
+				c.Logger.Error("Failed to send story media", "url", item.MediaURL, "error", err)
+			} else {
+				processedCount++
+			}
 		}
 	}
 
-	_, err = c.Telegram.SendMessage(update.Message.Chat.ID,
-		fmt.Sprintf("Processed %d current stories for %s", processedCount, userName))
-
+	_, err = c.Telegram.SendMessage(chatID, fmt.Sprintf("Processed %d current stories for %s", processedCount, userName))
 	return err
 }
 
 func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbotapi.Update) error {
 	args := strings.TrimSpace(update.Message.CommandArguments())
 	userName := strings.TrimSpace(args)
+	chatID := update.Message.Chat.ID
 
 	if userName == "" {
-		_, err := c.Telegram.SendMessage(update.Message.Chat.ID,
-			"Please provide a username: /highlights <username>")
+		_, err := c.Telegram.SendMessage(chatID, "Please provide a username: /highlights <username>")
 		return err
 	}
 
-	initialMsg, err := c.Telegram.SendMessage(update.Message.Chat.ID,
-		fmt.Sprintf("Getting highlights for @%s... This may take a while.", userName))
+	_, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Getting highlights for @%s... This may take a while.", userName))
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
-	_ = initialMsg
 
 	var processedCount int64
 	var reelsFound bool
@@ -201,7 +191,6 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 			}
 
 			var mediaItem tgbotapi.RequestFileData = tgbotapi.FileURL(item.MediaURL)
-
 			if strings.Contains(item.MediaURL, ".mp4") {
 				video := tgbotapi.NewInputMediaVideo(mediaItem)
 				if i == 0 {
@@ -218,16 +207,16 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 		}
 
 		if len(mediaGroup) > 0 {
-			if err := c.Telegram.SendMediaGroup(mediaGroup); err != nil {
-				c.Logger.Error("Failed to send highlight media group, falling back to individual sending", "title", highlightReel.Title, "error", err)
-
-				c.Telegram.SendMessageToChanel(caption)
+			if err := c.Telegram.SendMediaGroup(chatID, mediaGroup); err != nil {
+				c.Logger.Error("Failed to send highlight media group, falling back", "title", highlightReel.Title, "error", err)
+				c.Telegram.SendMessage(chatID, caption)
 				for _, item := range highlightReel.Items {
-					c.Telegram.SendMediaToChanelByUrl(item.MediaURL)
+					if item.MediaURL != "" {
+						c.Telegram.SendMediaByUrl(chatID, item.MediaURL)
+					}
 				}
 			}
 		}
-
 		atomic.AddInt64(&processedCount, int64(len(highlightReel.Items)))
 		return nil
 	}
@@ -235,20 +224,16 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 	err = c.Instagram.GetUserHighlights(userName, processor)
 	if err != nil {
 		if errors.Is(err, instagram.ErrPrivateAccount) {
-			_, _ = c.Telegram.SendMessage(update.Message.Chat.ID,
-				fmt.Sprintf("Account '@%s' is private. I cannot fetch highlights.", userName))
+			_, _ = c.Telegram.SendMessage(chatID, fmt.Sprintf("Account '@%s' is private. I cannot fetch highlights.", userName))
 			return nil
 		}
-
 		return fmt.Errorf("failed to get highlights for @%s: %w", userName, err)
 	}
 
 	if !reelsFound {
-		_, err = c.Telegram.SendMessage(update.Message.Chat.ID,
-			fmt.Sprintf("No highlights found for user: @%s", userName))
+		_, err = c.Telegram.SendMessage(chatID, fmt.Sprintf("No highlights found for user: @%s", userName))
 	} else {
-		_, err = c.Telegram.SendMessage(update.Message.Chat.ID,
-			fmt.Sprintf("Finished processing. Sent %d highlight items for @%s.", atomic.LoadInt64(&processedCount), userName))
+		_, err = c.Telegram.SendMessage(chatID, fmt.Sprintf("Finished processing. Sent %d highlight items for @%s.", atomic.LoadInt64(&processedCount), userName))
 	}
 
 	return err
