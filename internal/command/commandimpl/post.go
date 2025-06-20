@@ -40,15 +40,26 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 	c.Telegram.EditMessageText(chatID, sentMsgID, "✅ Successfully fetched post info! Sending media now...")
 
 	mediaGroup := make([]interface{}, 0, len(post.MediaURLs))
-	var captionToSend string
-
-	if post.Caption != "" {
-		if post.Username != "" {
-			captionToSend = fmt.Sprintf("From @%s:\n\n%s", post.Username, post.Caption)
-		} else {
-			captionToSend = post.Caption
-		}
+	var captionBuilder strings.Builder
+	if post.Username != "" {
+		captionBuilder.WriteString(fmt.Sprintf("*Post by @%s*\n\n", post.Username))
 	}
+	if post.Caption != "" {
+		captionBuilder.WriteString(post.Caption)
+		captionBuilder.WriteString("\n\n")
+	}
+	if post.LikeCount > 0 {
+		captionBuilder.WriteString(fmt.Sprintf("❤️ %s", formatNumber(post.LikeCount)))
+	}
+	if post.PostedAgo != "" {
+		captionBuilder.WriteString(fmt.Sprintf(" | 🕒 %s\n", post.PostedAgo))
+	} else if post.LikeCount > 0 {
+		captionBuilder.WriteString("\n")
+	}
+
+	captionBuilder.WriteString(fmt.Sprintf("\n[View on Instagram](%s)", post.PostURL))
+
+	captionToSend := captionBuilder.String()
 
 	for i, mediaURL := range post.MediaURLs {
 		var mediaItem tgbotapi.RequestFileData = tgbotapi.FileURL(mediaURL)

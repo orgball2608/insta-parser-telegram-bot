@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -75,11 +77,29 @@ func (a *APIAdapter) scrapeMedia(ctx context.Context, mediaURL string, mediaType
 
 	mediaItem := &domain.PostItem{PostURL: mediaURL}
 
-	caption, err := page.InnerText(".output-list__caption p, .output-list__info-text")
-	if err == nil {
+	if caption, err := page.InnerText(".output-list__caption p"); err == nil {
 		mediaItem.Caption = caption
 	} else {
 		a.logger.Warn("Could not find media caption", "url", mediaURL, "error", err)
+	}
+
+	if avatarHref, err := page.GetAttribute(".output-list__user-avatar", "href"); err == nil {
+		if u, err := url.Parse(avatarHref); err == nil {
+			mediaItem.Username = strings.Trim(u.Path, "/")
+		}
+	}
+
+	if likesText, err := page.InnerText(".output-list__info-like"); err == nil {
+		parts := strings.Fields(likesText)
+		if len(parts) > 0 {
+			if likeCount, err := strconv.Atoi(strings.ReplaceAll(parts[0], ",", "")); err == nil {
+				mediaItem.LikeCount = likeCount
+			}
+		}
+	}
+
+	if postedAgoText, err := page.InnerText(".output-list__info-time"); err == nil {
+		mediaItem.PostedAgo = strings.TrimSpace(postedAgoText)
 	}
 
 	downloadLocators, err := page.Locator("a.button__download").All()
@@ -111,6 +131,7 @@ func (a *APIAdapter) scrapeMedia(ctx context.Context, mediaURL string, mediaType
 		}
 	}
 
-	a.logger.Info("Successfully scraped media", "type", mediaType, "url", mediaURL, "media_count", len(mediaItem.MediaURLs))
+	a.logger.Info("Successfully scraped media", "type", mediaType, "url", mediaURL, "media_count", len(mediaItem.MediaURLs), "likes", mediaItem.LikeCount, "posted_ago", mediaItem.PostedAgo)
+
 	return mediaItem, nil
 }

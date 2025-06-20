@@ -1,6 +1,8 @@
 package commandimpl
 
 import (
+	"strconv"
+
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/command"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser"
@@ -43,3 +45,39 @@ func New(opts Opts) *CommandImpl {
 }
 
 var _ command.Client = (*CommandImpl)(nil)
+
+// formatNumber converts an integer to a string with commas as thousands separators.
+// Example: 1234567 -> "1,234,567"
+func formatNumber(n int) string {
+	s := strconv.Itoa(n)
+	if n < 0 {
+		s = s[1:]
+	}
+
+	le := len(s)
+	if le <= 3 {
+		if n < 0 {
+			return "-" + s
+		}
+		return s
+	}
+
+	sepCount := (le - 1) / 3
+
+	res := make([]byte, le+sepCount)
+
+	j := len(res) - 1
+	for i := le - 1; i >= 0; i-- {
+		res[j] = s[i]
+		j--
+		if (le-i)%3 == 0 && i > 0 {
+			res[j] = ','
+			j--
+		}
+	}
+
+	if n < 0 {
+		return "-" + string(res)
+	}
+	return string(res)
+}

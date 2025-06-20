@@ -39,14 +39,26 @@ func (c *CommandImpl) handleReelCommand(ctx context.Context, update tgbotapi.Upd
 
 	c.Telegram.EditMessageText(chatID, sentMsgID, "✅ Successfully fetched Reel info! Sending video now...")
 
-	var captionToSend string
-	if reel.Caption != "" {
-		if reel.Username != "" {
-			captionToSend = fmt.Sprintf("Reel by @%s:\n\n%s", reel.Username, reel.Caption)
-		} else {
-			captionToSend = reel.Caption
-		}
+	var captionBuilder strings.Builder
+	if reel.Username != "" {
+		captionBuilder.WriteString(fmt.Sprintf("*Reel by @%s*\n\n", reel.Username))
 	}
+	if reel.Caption != "" {
+		captionBuilder.WriteString(reel.Caption)
+		captionBuilder.WriteString("\n\n")
+	}
+	if reel.LikeCount > 0 {
+		captionBuilder.WriteString(fmt.Sprintf("❤️ %s", formatNumber(reel.LikeCount)))
+	}
+	if reel.PostedAgo != "" {
+		captionBuilder.WriteString(fmt.Sprintf(" | 🕒 %s\n", reel.PostedAgo))
+	} else if reel.LikeCount > 0 {
+		captionBuilder.WriteString("\n")
+	}
+
+	captionBuilder.WriteString(fmt.Sprintf("\n[View on Instagram](%s)", reel.PostURL))
+
+	captionToSend := captionBuilder.String()
 
 	err = c.Telegram.SendMediaByUrl(chatID, reel.MediaURLs[0])
 	if err != nil {

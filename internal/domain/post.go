@@ -9,4 +9,6 @@ type PostItem struct {
 	MediaURLs []string
 	IsVideo   bool
 	TakenAt   time.Time
+	LikeCount int
+	PostedAgo string
 }
