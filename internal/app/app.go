@@ -17,7 +17,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram/api_adapter"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser/paserimpl"
+	paserimpl "github.com/orgball2608/insta-parser-telegram-bot/internal/parser/parserimpl"
 	repositories "github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/fx"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram/telegramimpl"

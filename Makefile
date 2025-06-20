@@ -1,4 +1,4 @@
-.PHONY: all build run test clean lint mock docker-build docker-run migrate-up migrate-down
+.PHONY: all build run test clean lint mock docker-build docker-run migrate-up migrate-down migrate-status migrate-redo migrate-reset
 
 # Go parameters
 BINARY_NAME=insta-parser-bot
@@ -50,6 +50,19 @@ migrate-down:
 	@echo "Rolling back database migrations..."
 	go run tools/migrate/main.go down
 
+migrate-status:
+	@echo "Checking migration status..."
+	go run tools/migrate/main.go status
+
+migrate-redo:
+	@echo "Redoing the last migration..."
+	go run tools/migrate/main.go down
+	go run tools/migrate/main.go up
+
+migrate-reset:
+	@echo "Resetting all migrations..."
+	go run tools/migrate/main.go reset
+
 install-tools:
 	@echo "Installing development tools..."
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
@@ -68,4 +81,11 @@ help:
 	@echo "  make docker-run   - Run Docker container"
 	@echo "  make migrate-up   - Run database migrations"
 	@echo "  make migrate-down - Rollback database migrations"
+	@echo "  make migrate-status - Check migration status"
+	@echo "  make migrate-redo - Redo the last migration"
+	@echo "  make migrate-reset - Reset all migrations"
 	@echo "  make install-tools- Install development tools"
+
+create-migration:
+	@echo "Creating new migration: $(name)"
+	@go run tools/migrate/main.go create $(name)
