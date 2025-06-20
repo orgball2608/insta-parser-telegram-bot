@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -17,7 +18,6 @@ func (c *CommandImpl) HandleCommand(ctx context.Context) error {
 	u.Timeout = 60
 
 	updates := c.Telegram.GetUpdatesChan(u)
-
 	c.Logger.Info("Command handler started, listening for updates.")
 
 	for {
@@ -28,28 +28,34 @@ func (c *CommandImpl) HandleCommand(ctx context.Context) error {
 			return ctx.Err()
 		case update, ok := <-updates:
 			if !ok {
-				c.Logger.Warn("Telegram updates channel closed unexpectedly.")
+				c.Logger.Warn("Telegram updates channel closed unexpectedly. Restarting handler...")
 				return errors.New("telegram updates channel closed")
 			}
 
-			if update.Message == nil {
-				continue
-			}
+			go func(u tgbotapi.Update) {
+				defer func() {
+					if r := recover(); r != nil {
+						c.Logger.Error("Panic recovered while processing an update", "panic", r, "stack", string(debug.Stack()))
+					}
+				}()
 
-			c.Logger.Info("Message received",
-				"from", update.Message.From.UserName,
-				"text", update.Message.Text)
-
-			if update.Message.IsCommand() {
-				if err := c.processCommand(ctx, update); err != nil {
-					c.Logger.Error("Error processing command",
-						"command", update.Message.Command(),
-						"error", err)
-
-					_, _ = c.Telegram.SendMessage(update.Message.Chat.ID,
-						fmt.Sprintf("Error: %s", err.Error()))
+				if u.Message == nil {
+					return
 				}
-			}
+
+				c.Logger.Info("Message received", "from", u.Message.From.UserName, "text", u.Message.Text)
+
+				if u.Message.IsCommand() {
+					if err := c.processCommand(ctx, u); err != nil {
+						c.Logger.Error("Error processing command",
+							"command", u.Message.Command(),
+							"error", err)
+
+						_, _ = c.Telegram.SendMessage(u.Message.Chat.ID,
+							fmt.Sprintf("An error occurred: %s", err.Error()))
+					}
+				}
+			}(update) // Truyền update vào goroutine
 		}
 	}
 }

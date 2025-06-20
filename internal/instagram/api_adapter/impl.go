@@ -46,7 +46,7 @@ func NewPlaywrightManager(lc fx.Lifecycle, log logger.Logger) (*PlaywrightManage
 			"--disable-accelerated-2d-canvas",
 			"--no-first-run",
 			"--no-zygote",
-			"--single-process", // Use only if really needed, it can affect performance
+			// "--single-process", // Use only if really needed, it can affect performance
 			"--disable-gpu",
 		},
 	})
@@ -114,11 +114,6 @@ func (a *APIAdapter) newScrapingPage(ctx context.Context, url string) (playwrigh
 		debug.FreeOSMemory()
 	}
 
-	if err := setupRequestInterception(brContext); err != nil {
-		cleanup()
-		return nil, nil, fmt.Errorf("failed to set up request interception: %w", err)
-	}
-
 	page, err := brContext.NewPage()
 	if err != nil {
 		cleanup()
@@ -139,17 +134,17 @@ func (a *APIAdapter) newScrapingPage(ctx context.Context, url string) (playwrigh
 	return page, cleanup, nil
 }
 
-// setupRequestInterception block unnecessary resources
-func setupRequestInterception(ctx playwright.BrowserContext) error {
-	return ctx.Route("**/*", func(route playwright.Route) {
-		resourceType := route.Request().ResourceType()
-		if resourceType == "image" || resourceType == "stylesheet" || resourceType == "font" || resourceType == "media" {
-			route.Abort()
-		} else {
-			route.Continue()
-		}
-	})
-}
+// // setupRequestInterception block unnecessary resources
+// func setupRequestInterception(ctx playwright.BrowserContext) error {
+// 	return ctx.Route("**/*", func(route playwright.Route) {
+// 		resourceType := route.Request().ResourceType()
+// 		if resourceType == "image" || resourceType == "stylesheet" || resourceType == "font" || resourceType == "media" {
+// 			route.Abort()
+// 		} else {
+// 			route.Continue()
+// 		}
+// 	})
+// }
 
 func (a *APIAdapter) GetUserStories(userName string) ([]domain.StoryItem, error) {
 	links, err := a.scrapeStoryLinks(userName)
@@ -193,7 +188,7 @@ func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
 	}
 
 	combinedSelector := ".output-profile, .error-message"
-	if _, err = page.WaitForSelector(combinedSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(45000)}); err != nil {
+	if _, err = page.WaitForSelector(combinedSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(90000)}); err != nil {
 		return nil, fmt.Errorf("search results or error message did not load in time: %w", err)
 	}
 
@@ -236,7 +231,7 @@ func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagr
 	}
 
 	combinedSelector := ".output-profile, .error-message"
-	if _, err = page.WaitForSelector(combinedSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(45000)}); err != nil {
+	if _, err = page.WaitForSelector(combinedSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(90000)}); err != nil {
 		return fmt.Errorf("search results or error message did not load in time: %w", err)
 	}
 

@@ -9,9 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime/debug"
 	"syscall"
-	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/command"
@@ -119,35 +117,6 @@ func runMigrations(log logger.Logger, cfg *config.Config) error {
 	return nil
 }
 
-// supervisor wraps a task to make it restartable on panic or error.
-func supervisor(ctx context.Context, log logger.Logger, name string, task func(ctx context.Context) error) func() error {
-	return func() error {
-		for {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							log.Error("Service panicked, restarting...", "service", name, "panic", r, "stack", string(debug.Stack()))
-							time.Sleep(5 * time.Second)
-						}
-					}()
-
-					err := task(ctx)
-					if err != nil && !errors.Is(err, context.Canceled) {
-						log.Error("Service stopped with error, restarting...", "service", name, "error", err)
-						time.Sleep(5 * time.Second)
-					} else if errors.Is(err, context.Canceled) {
-						log.Info("Service stopped gracefully", "service", name)
-					}
-				}()
-			}
-		}
-	}
-}
-
 func startServices(
 	lc fx.Lifecycle,
 	log logger.Logger,
@@ -173,17 +142,16 @@ func startServices(
 
 			// Start HTTP Server
 			g.Go(func() error {
-				log.Info("Starting HTTP server", "addr", server.server.Addr)
-				if err := server.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-					return fmt.Errorf("http server failed: %w", err)
-				}
-				return nil
+				return cmdClient.HandleCommand(gCtx)
 			})
 
-			g.Go(supervisor(gCtx, log, "StoryParserScheduler", pClient.ScheduleParseStories))
-			g.Go(supervisor(gCtx, log, "TelegramCommandHandler", func(ctx context.Context) error {
-				return cmdClient.HandleCommand(ctx)
-			}))
+			g.Go(func() error {
+				return pClient.ScheduleParseStories(gCtx)
+			})
+
+			g.Go(func() error {
+				return cmdClient.HandleCommand(gCtx)
+			})
 
 			// Goroutine to wait for the first service to fail and initiate shutdown
 			go func() {
@@ -198,16 +166,7 @@ func startServices(
 		},
 		OnStop: func(ctx context.Context) error {
 			log.Info("Initiating graceful shutdown...")
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-
-			// Shutdown the HTTP server gracefully. errgroup will handle the other services.
-			if err := server.server.Shutdown(shutdownCtx); err != nil {
-				log.Error("HTTP server shutdown failed", "error", err)
-			}
-
-			// Wait for the errgroup to finish, which includes all supervised tasks
-			return g.Wait()
+			return server.server.Shutdown(ctx)
 		},
 	})
 }
