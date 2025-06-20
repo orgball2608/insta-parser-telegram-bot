@@ -12,42 +12,46 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 )
 
-func (c *CommandImpl) HandleCommand() error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+func (c *CommandImpl) HandleCommand(ctx context.Context) error {
 	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
 
-	updates, err := c.Telegram.GetUpdatesChan(u)
-	if err != nil {
-		c.Logger.Error("Error getting updates from telegram", "error", err)
-		return fmt.Errorf("failed to get telegram updates: %w", err)
-	}
+	updates := c.Telegram.GetUpdatesChan(u)
 
-	c.Logger.Info("Starting command handler, waiting for messages")
+	c.Logger.Info("Command handler started, listening for updates.")
 
-	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
+	for {
+		select {
+		case <-ctx.Done():
+			c.Logger.Info("Command handler shutting down.")
+			c.Telegram.StopReceivingUpdates()
+			return ctx.Err()
+		case update, ok := <-updates:
+			if !ok {
+				c.Logger.Warn("Telegram updates channel closed unexpectedly.")
+				return errors.New("telegram updates channel closed")
+			}
 
-		c.Logger.Info("Message received",
-			"from", update.Message.From.UserName,
-			"text", update.Message.Text)
+			if update.Message == nil {
+				continue
+			}
 
-		if update.Message.IsCommand() {
-			if err := c.processCommand(ctx, update); err != nil {
-				c.Logger.Error("Error processing command",
-					"command", update.Message.Command(),
-					"error", err)
+			c.Logger.Info("Message received",
+				"from", update.Message.From.UserName,
+				"text", update.Message.Text)
 
-				_, _ = c.Telegram.SendMessage(update.Message.Chat.ID,
-					fmt.Sprintf("Error: %s", err.Error()))
+			if update.Message.IsCommand() {
+				if err := c.processCommand(ctx, update); err != nil {
+					c.Logger.Error("Error processing command",
+						"command", update.Message.Command(),
+						"error", err)
+
+					_, _ = c.Telegram.SendMessage(update.Message.Chat.ID,
+						fmt.Sprintf("Error: %s", err.Error()))
+				}
 			}
 		}
 	}
-
-	return nil
 }
 
 func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update) error {

@@ -160,8 +160,8 @@ func (tg *TelegramImpl) SendMessage(chatID int64, text string) (int, error) {
 }
 
 // GetUpdatesChan wraps the bot's GetUpdatesChan method
-func (tg *TelegramImpl) GetUpdatesChan(u tgbotapi.UpdateConfig) (tgbotapi.UpdatesChannel, error) {
-	return tg.TgBot.GetUpdatesChan(u), nil
+func (tg *TelegramImpl) GetUpdatesChan(u tgbotapi.UpdateConfig) tgbotapi.UpdatesChannel {
+	return tg.TgBot.GetUpdatesChan(u)
 }
 
 // Helper functions
@@ -183,4 +183,8 @@ func safeClose(closer io.ReadCloser, logger logger.Logger) {
 	if err := closer.Close(); err != nil {
 		logger.Error("Error closing response body", "error", err)
 	}
+}
+
+func (tg *TelegramImpl) StopReceivingUpdates() {
+	tg.TgBot.StopReceivingUpdates()
 }

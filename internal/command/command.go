@@ -1,5 +1,7 @@
 package command
 
+import "context"
+
 type Client interface {
-	HandleCommand() error
+	HandleCommand(ctx context.Context) error
 }

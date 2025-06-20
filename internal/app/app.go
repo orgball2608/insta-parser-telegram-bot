@@ -181,8 +181,8 @@ func startServices(
 			})
 
 			g.Go(supervisor(gCtx, log, "StoryParserScheduler", pClient.ScheduleParseStories))
-			g.Go(supervisor(gCtx, log, "TelegramCommandHandler", func(_ context.Context) error {
-				return cmdClient.HandleCommand()
+			g.Go(supervisor(gCtx, log, "TelegramCommandHandler", func(ctx context.Context) error {
+				return cmdClient.HandleCommand(ctx)
 			}))
 
 			// Goroutine to wait for the first service to fail and initiate shutdown
