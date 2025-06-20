@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net/url"
+	"path"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
@@ -17,19 +20,16 @@ import (
 	"go.uber.org/fx"
 )
 
-// PlaywrightManager manage the playwright instance
 type PlaywrightManager struct {
 	pw      *playwright.Playwright
 	browser playwright.Browser
 	logger  logger.Logger
 }
 
-// Browser return the browser instance
 func (pm *PlaywrightManager) Browser() playwright.Browser {
 	return pm.browser
 }
 
-// NewPlaywrightManager create a new playwright manager
 func NewPlaywrightManager(lc fx.Lifecycle, log logger.Logger) (*PlaywrightManager, error) {
 	log.Info("Initializing Playwright Manager...")
 	pw, err := playwright.Run()
@@ -42,11 +42,10 @@ func NewPlaywrightManager(lc fx.Lifecycle, log logger.Logger) (*PlaywrightManage
 		Args: []string{
 			"--no-sandbox",
 			"--disable-setuid-sandbox",
-			"--disable-dev-shm-usage", // Important in Docker/container
+			"--disable-dev-shm-usage",
 			"--disable-accelerated-2d-canvas",
 			"--no-first-run",
 			"--no-zygote",
-			// "--single-process", // Use only if really needed, it can affect performance
 			"--disable-gpu",
 		},
 	})
@@ -100,7 +99,6 @@ func New(opts Opts) instagram.Client {
 	}
 }
 
-// newScrapingPage create a new page for scraping data
 func (a *APIAdapter) newScrapingPage(ctx context.Context, url string) (playwright.Page, func(), error) {
 	brContext, err := a.playwright.Browser().NewContext(playwright.BrowserNewContextOptions{
 		UserAgent: playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
@@ -147,25 +145,14 @@ func (a *APIAdapter) newScrapingPage(ctx context.Context, url string) (playwrigh
 // }
 
 func (a *APIAdapter) GetUserStories(userName string) ([]domain.StoryItem, error) {
-	links, err := a.scrapeStoryLinks(userName)
-	if err != nil {
-		return nil, err
-	}
-	var storyItems []domain.StoryItem
-	for _, link := range links {
-		storyItems = append(storyItems, domain.StoryItem{
-			MediaURL: link,
-			Username: userName,
-		})
-	}
-	return storyItems, nil
+	return a.scrapeStoryLinks(userName)
 }
 
 func (a *APIAdapter) GetUserHighlights(userName string, processorFunc instagram.HighlightReelProcessorFunc) error {
 	return a.scrapeHighlightLinks(userName, processorFunc)
 }
 
-func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
+func (a *APIAdapter) scrapeStoryLinks(userName string) ([]domain.StoryItem, error) {
 	a.logger.Info("Scraping stories", "user", userName)
 	page, cleanup, err := a.newScrapingPage(context.Background(), "https://instasupersave.com/en/instagram-stories/")
 	if err != nil {
@@ -205,7 +192,7 @@ func (a *APIAdapter) scrapeStoryLinks(userName string) ([]string, error) {
 	}
 	time.Sleep(2 * time.Second)
 
-	return scrollAndExtractAllLinks(page)
+	return scrollAndExtractAllItems(page, userName)
 }
 
 func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagram.HighlightReelProcessorFunc) error {
@@ -269,18 +256,10 @@ func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagr
 			continue
 		}
 
-		albumLinks, err := scrollAndExtractAllLinks(page)
+		highlightItems, err := scrollAndExtractAllItems(page, userName)
 		if err != nil {
-			a.logger.Error("Failed to extract links for album", "title", albumTitle, "error", err)
+			a.logger.Error("Failed to extract items for album", "title", albumTitle, "error", err)
 			continue
-		}
-
-		var highlightItems []domain.StoryItem
-		for _, link := range albumLinks {
-			highlightItems = append(highlightItems, domain.StoryItem{
-				MediaURL: link,
-				Username: userName,
-			})
 		}
 
 		reel := domain.HighlightReel{
@@ -292,15 +271,15 @@ func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagr
 			a.logger.Error("Processor function returned an error, stopping highlight processing", "error", err)
 			return err
 		}
-		a.logger.Info("Finished processing album", "title", albumTitle, "new_links", len(albumLinks))
+		a.logger.Info("Finished processing album", "title", albumTitle, "new_items", len(highlightItems))
 	}
 
 	return nil
 }
 
-func scrollAndExtractAllLinks(page playwright.Page) ([]string, error) {
-	linksSet := make(map[string]bool)
-	previousLinkCount := -1
+func scrollAndExtractAllItems(page playwright.Page, userName string) ([]domain.StoryItem, error) {
+	itemsSet := make(map[string]domain.StoryItem)
+	previousItemCount := -1
 
 	for i := 0; i < 30; i++ {
 		mediaListSelector := "ul.profile-media-list"
@@ -320,33 +299,107 @@ func scrollAndExtractAllLinks(page playwright.Page) ([]string, error) {
 
 		for _, locator := range locators {
 			href, err := locator.GetAttribute("href")
-			if err == nil && href != "" {
-				linksSet[href] = true
+			if err != nil || href == "" {
+				continue
+			}
+
+			storyID := extractStoryIDFromURL(href)
+			if storyID == "" {
+				log.Printf("Could not extract story ID from URL: %s", href)
+				continue
+			}
+
+			if _, exists := itemsSet[storyID]; exists {
+				continue
+			}
+
+			mediaType := domain.MediaTypeImage
+			if strings.Contains(href, ".mp4") {
+				mediaType = domain.MediaTypeVideo
+			}
+
+			itemsSet[storyID] = domain.StoryItem{
+				ID:        storyID,
+				MediaURL:  href,
+				MediaType: mediaType,
+				Username:  userName,
+				TakenAt:   time.Now(),
 			}
 		}
 
-		currentLinkCount := len(linksSet)
-		if currentLinkCount == previousLinkCount {
-			log.Printf("Scroll finished: No new links found. Total: %d", currentLinkCount)
+		currentItemCount := len(itemsSet)
+		if currentItemCount == previousItemCount {
+			log.Printf("Scroll finished: No new items found. Total: %d", currentItemCount)
 			break
 		}
 
-		log.Printf("Scroll attempt %d: Found %d unique links (previously %d)", i+1, currentLinkCount, previousLinkCount)
-		previousLinkCount = currentLinkCount
+		log.Printf("Scroll attempt %d: Found %d unique items (previously %d)", i+1, currentItemCount, previousItemCount)
+		previousItemCount = currentItemCount
 
 		page.Evaluate("window.scrollTo(0, document.body.scrollHeight)")
-
 		time.Sleep(time.Duration(1500+rand.Intn(1000)) * time.Millisecond)
 	}
 
-	finalLinks := make([]string, 0, len(linksSet))
-	for link := range linksSet {
-		finalLinks = append(finalLinks, link)
+	finalItems := make([]domain.StoryItem, 0, len(itemsSet))
+	for _, item := range itemsSet {
+		finalItems = append(finalItems, item)
 	}
 
-	if len(finalLinks) == 0 {
-		return nil, fmt.Errorf("no media links found after scrolling")
+	if len(finalItems) == 0 {
+		return nil, fmt.Errorf("no media items found after scrolling")
 	}
 
-	return finalLinks, nil
+	return finalItems, nil
+}
+
+func extractStoryIDFromURL(rawURL string) string {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+
+	uriParam := parsedURL.Query().Get("uri")
+	if uriParam == "" {
+		return ""
+	}
+
+	nestedURL, err := url.Parse(uriParam)
+	if err != nil {
+		return ""
+	}
+
+	filename := path.Base(nestedURL.Path)
+
+	extension := path.Ext(filename)
+	storyID := strings.TrimSuffix(filename, extension)
+
+	if storyID != "" {
+		return storyID
+	}
+
+	decodedURL := rawURL
+	for {
+		unescaped, err := url.QueryUnescape(decodedURL)
+		if err != nil {
+			return ""
+		}
+		if unescaped == decodedURL {
+			break
+		}
+		decodedURL = unescaped
+	}
+
+	const assetIDKey = `"xpv_asset_id":`
+	index := strings.Index(decodedURL, assetIDKey)
+	if index == -1 {
+		return ""
+	}
+
+	subStr := decodedURL[index+len(assetIDKey):]
+	endIndex := strings.IndexAny(subStr, ",}")
+	if endIndex == -1 {
+		return ""
+	}
+
+	return strings.TrimSpace(subStr[:endIndex])
 }

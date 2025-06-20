@@ -26,7 +26,7 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 	}
 
 	_, err = scheduler.NewJob(
-		gocron.DurationRandomJob(15*time.Minute, 20*time.Minute),
+		gocron.DurationRandomJob(1*time.Minute, 2*time.Minute),
 		gocron.NewTask(func() {
 			if ctx.Err() != nil {
 				p.Logger.Info("Context cancelled, stopping story parsing schedule")
@@ -103,9 +103,9 @@ func (p *ParserImpl) processSubscribedUser(ctx context.Context, username string)
 
 	var newStories []domain.StoryItem
 	for _, story := range stories {
-		exists, err := p.checkStoryExists(story.MediaURL)
+		exists, err := p.checkStoryExists(story.ID)
 		if err != nil {
-			p.Logger.Error("Failed to check story existence", "media_url", story.MediaURL, "error", err)
+			p.Logger.Error("Failed to check story existence", "story_id", story.ID, "error", err)
 			continue
 		}
 		if !exists {
@@ -132,11 +132,15 @@ func (p *ParserImpl) processSubscribedUser(ctx context.Context, username string)
 
 	for _, story := range newStories {
 		dbStory := domain.Story{
-			StoryID:   story.MediaURL,
+			StoryID:   story.ID,
 			UserName:  story.Username,
-			CreatedAt: time.Now(),
+			CreatedAt: story.TakenAt,
 		}
 		if err := p.StoryRepo.Create(ctx, dbStory); err != nil {
+			if errors.Is(err, storyRepo.ErrCannotCreate) {
+				p.Logger.Warn("Story might already exist or failed to create, skipping send", "story_id", dbStory.StoryID)
+				continue
+			}
 			p.Logger.Error("Failed to save story to DB", "story_id", dbStory.StoryID, "error", err)
 			continue
 		}
@@ -156,11 +160,10 @@ func (p *ParserImpl) processSubscribedUser(ctx context.Context, username string)
 func shuffleUsernames(usernames []string) []string {
 	result := make([]string, len(usernames))
 	copy(result, usernames)
-	rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := len(result) - 1; i > 0; i-- {
-		j := rand.Intn(i + 1)
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r.Shuffle(len(result), func(i, j int) {
 		result[i], result[j] = result[j], result[i]
-	}
+	})
 	return result
 }
 
@@ -263,6 +266,11 @@ func (p *ParserImpl) checkStoryExists(storyID string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	if storyID == "" {
+		p.Logger.Warn("checkStoryExists called with empty storyID")
+		return true, nil
+	}
+
 	_, err := p.StoryRepo.GetByStoryID(ctx, storyID)
 	if err != nil {
 		if errors.Is(err, storyRepo.ErrNotFound) {
@@ -284,7 +292,8 @@ func (p *ParserImpl) processStoryItem(item domain.StoryItem) error {
 	}
 
 	if err := p.StoryRepo.Create(ctx, story); err != nil {
-		if errors.Is(err, storyRepo.ErrNotFound) {
+		if errors.Is(err, storyRepo.ErrCannotCreate) {
+			p.Logger.Warn("Story might already exist or failed to create, skipping send", "story_id", story.StoryID)
 			return nil
 		}
 		return fmt.Errorf("failed to save story: %w", err)
