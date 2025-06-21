@@ -296,23 +296,92 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 		return
 	}
 
+	// Filter out items with empty MediaURL
+	var validItems []domain.StoryItem
+	for _, item := range highlightReel.Items {
+		if item.MediaURL != "" {
+			validItems = append(validItems, item)
+		}
+	}
+
+	if len(validItems) == 0 {
+		c.Telegram.EditMessageText(chatID, messageID, "No valid media found in this highlight album.")
+		return
+	}
+
 	// Escape title for Markdown
 	escapedTitle := formatter.EscapeMarkdownV2(highlightReel.Title)
+	totalItems := len(validItems)
+
 	// Update message to show we're downloading
-	c.Telegram.EditMessageText(chatID, messageID, fmt.Sprintf("Found %d items in '%s'. Downloading and preparing to send...", len(highlightReel.Items), escapedTitle))
+	c.Telegram.EditMessageText(
+		chatID,
+		messageID,
+		fmt.Sprintf("Found %d items in '%s'. Processing in batches...", totalItems, escapedTitle),
+	)
 
-	// --- BEGIN PRE-DOWNLOADING LOGIC ---
+	// Constants for batch processing
+	const batchSize = 10                                     // Telegram's limit for media groups
+	totalBatches := (totalItems + batchSize - 1) / batchSize // Ceiling division
 
-	// Use WaitGroup to wait for all download goroutines to complete
-	var wg sync.WaitGroup
-	// Use channel to safely receive downloaded media data
-	mediaChannel := make(chan interface{}, len(highlightReel.Items))
+	// Save all items to database first
+	for _, item := range validItems {
+		highlightItem := domain.Highlights{
+			UserName:  userName,
+			MediaURL:  item.MediaURL,
+			CreatedAt: time.Now(),
+		}
+		if err := c.Parser.SaveHighlight(highlightItem); err != nil {
+			c.Logger.Error("Error saving highlight to DB", "url", item.MediaURL, "error", err)
+		}
+	}
 
-	for i, item := range highlightReel.Items {
-		if item.MediaURL == "" {
-			continue
+	// Process in batches
+	var successCount int
+	for batchIndex := 0; batchIndex < totalBatches; batchIndex++ {
+		// Calculate start and end indices for this batch
+		startIdx := batchIndex * batchSize
+		endIdx := startIdx + batchSize
+		if endIdx > totalItems {
+			endIdx = totalItems
 		}
 
+		batchItems := validItems[startIdx:endIdx]
+		batchSize := len(batchItems)
+
+		// Update progress message
+		c.Telegram.EditMessageText(
+			chatID,
+			messageID,
+			fmt.Sprintf("Processing '%s': Batch %d/%d (%d items)...",
+				escapedTitle, batchIndex+1, totalBatches, batchSize),
+		)
+
+		// Process this batch
+		batchSuccess := c.processBatch(ctx, chatID, batchItems, highlightReel.Title, batchIndex == 0)
+		if batchSuccess {
+			successCount += batchSize
+		}
+	}
+
+	// Update final message
+	c.Telegram.EditMessageText(
+		chatID,
+		messageID,
+		fmt.Sprintf("✅ Finished! Successfully sent %d/%d items from highlight album '%s'.",
+			successCount, totalItems, escapedTitle),
+	)
+}
+
+// processBatch handles downloading and sending a batch of media items
+func (c *CommandImpl) processBatch(ctx context.Context, chatID int64, batchItems []domain.StoryItem, albumTitle string, isFirstBatch bool) bool {
+	// Use WaitGroup to wait for all download goroutines in this batch to complete
+	var wg sync.WaitGroup
+	// Use channel to safely receive downloaded media data
+	mediaChannel := make(chan interface{}, len(batchItems))
+
+	// Start downloading all items in this batch concurrently
+	for i, item := range batchItems {
 		wg.Add(1)
 		go func(mediaItem domain.StoryItem, index int) {
 			defer wg.Done()
@@ -340,11 +409,9 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 		}(item, i)
 	}
 
-	// Wait for all downloads to complete
+	// Wait for all downloads in this batch to complete
 	wg.Wait()
 	close(mediaChannel) // Close channel so we can range over it
-
-	// --- END PRE-DOWNLOADING LOGIC ---
 
 	// Collect downloaded media from channel into a slice
 	var mediaGroup []interface{}
@@ -353,13 +420,13 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 	}
 
 	if len(mediaGroup) == 0 {
-		c.Telegram.EditMessageText(chatID, messageID, "Failed to download any media from the album.")
-		return
+		c.Logger.Warn("Failed to download any media from batch", "batch_size", len(batchItems))
+		return false
 	}
 
-	// Set caption for the first media item
-	caption := fmt.Sprintf("Highlight: %s", highlightReel.Title)
-	if len(mediaGroup) > 0 {
+	// Set caption only for the first media item in the first batch
+	if isFirstBatch && len(mediaGroup) > 0 {
+		caption := fmt.Sprintf("Highlight: %s", albumTitle)
 		switch m := mediaGroup[0].(type) {
 		case tgbotapi.InputMediaVideo:
 			m.Caption = caption
@@ -370,33 +437,24 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 		}
 	}
 
-	// Save highlights to database
-	for _, item := range highlightReel.Items {
-		if item.MediaURL == "" {
-			continue
-		}
-
-		highlightItem := domain.Highlights{
-			UserName:  userName,
-			MediaURL:  item.MediaURL,
-			CreatedAt: time.Now(),
-		}
-		if err := c.Parser.SaveHighlight(highlightItem); err != nil {
-			c.Logger.Error("Error saving highlight to DB", "url", item.MediaURL, "error", err)
-		}
-	}
-
 	// Send media group
 	if err := c.Telegram.SendMediaGroup(chatID, mediaGroup); err != nil {
-		c.Logger.Error("Failed to send highlight media group, falling back", "title", highlightReel.Title, "error", err)
-		c.Telegram.SendMessage(chatID, caption)
-		for _, item := range highlightReel.Items {
-			if item.MediaURL != "" {
-				c.Telegram.SendMediaByUrl(chatID, item.MediaURL)
+		c.Logger.Error("Failed to send highlight media group batch", "title", albumTitle, "error", err)
+
+		// Fallback: try sending individually for this batch
+		caption := fmt.Sprintf("Highlight: %s", albumTitle)
+		if isFirstBatch {
+			c.Telegram.SendMessage(chatID, caption)
+		}
+
+		for _, item := range batchItems {
+			if err := c.Telegram.SendMediaByUrl(chatID, item.MediaURL); err != nil {
+				c.Logger.Error("Failed to send individual media", "url", item.MediaURL, "error", err)
 			}
 		}
+
+		return false
 	}
 
-	// Update final message
-	c.Telegram.EditMessageText(chatID, messageID, fmt.Sprintf("✅ Finished! Sent %d items from highlight album '%s'.", len(mediaGroup), escapedTitle))
+	return true
 }
