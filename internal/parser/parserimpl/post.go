@@ -3,6 +3,7 @@ package paserimpl
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
@@ -153,7 +154,11 @@ func (p *ParserImpl) sendPostToSubscriber(ctx context.Context, chatID int64, pos
 	if escapedCaption != "" {
 		message += fmt.Sprintf("%s\n\n", escapedCaption)
 	}
-	message += fmt.Sprintf("🔗 [View on Instagram](%s)", post.PostURL)
+
+	// Only add the "View on Instagram" link if the URL contains "/p/" or "/reel/"
+	if strings.Contains(post.PostURL, "/p/") || strings.Contains(post.PostURL, "/reel/") {
+		message += fmt.Sprintf("🔗 [View on Instagram](%s)", post.PostURL)
+	}
 
 	// Send message with media if available
 	if len(post.MediaURLs) > 0 {
