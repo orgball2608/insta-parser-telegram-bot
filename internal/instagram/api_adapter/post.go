@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/rand"
 	"net/url"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -15,156 +17,136 @@ import (
 	"github.com/playwright-community/playwright-go"
 )
 
-// GetUserPosts retrieves the latest posts for a user
+// GetUserPosts retrieves the latest posts for a user using a reliable third-party scraper.
 func (a *APIAdapter) GetUserPosts(ctx context.Context, userName string) ([]domain.PostItem, error) {
-	a.logger.Info("Fetching posts for user", "username", userName)
+	a.logger.Info("Fetching user posts via reliable scraper", "username", userName)
 
-	url := fmt.Sprintf("https://www.instagram.com/%s/", userName)
-	page, cleanup, err := a.newScrapingPage(ctx, url)
+	// We use the story downloader URL as it's a general-purpose entry point for a user profile.
+	scraperURL := fmt.Sprintf("https://instasupersave.com/en/instagram-stories/")
+
+	page, cleanup, err := a.newScrapingPage(ctx, scraperURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create page: %w", err)
+		return nil, err
 	}
 	defer cleanup()
 
-	// Check if account is private
-	privateAccountSelector := "//h2[contains(text(), 'This Account is Private')]"
-	isPrivate, err := page.IsVisible(privateAccountSelector)
-	if err == nil && isPrivate {
+	// --- Step 1: Search for the user ---
+	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
+		return nil, fmt.Errorf("could not type username: %w", err)
+	}
+	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
+
+	clickOperation := func() error {
+		return page.Click("button.search-form__button")
+	}
+	if err = retry.Do(ctx, a.logger, "SearchButtonClick", clickOperation, retry.DefaultConfig()); err != nil {
+		return nil, fmt.Errorf("could not click search button: %w", err)
+	}
+
+	// --- Step 2: Wait for results and handle private accounts ---
+	profileSelector := ".output-profile, .error-message"
+	if _, err = page.WaitForSelector(profileSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(90000)}); err != nil {
+		return nil, fmt.Errorf("profile results or error message did not load in time: %w", err)
+	}
+
+	if isPrivate, _ := page.IsVisible(".error-message"); isPrivate {
 		a.logger.Warn("Account is private, cannot fetch posts", "user", userName)
 		return nil, instagram.ErrPrivateAccount
 	}
 
-	// Wait for posts to load
-	postsSelector := "article a[href*='/p/']"
-	if _, err = page.WaitForSelector(postsSelector, playwright.PageWaitForSelectorOptions{
-		Timeout: playwright.Float(30000),
-		State:   playwright.WaitForSelectorStateAttached,
-	}); err != nil {
-		a.logger.Warn("No posts found or could not load posts", "user", userName, "error", err)
-		return []domain.PostItem{}, nil
+	// --- Step 3: Switch to the "posts" tab ---
+	postsTabSelector := "//button[contains(text(),'posts')]"
+	if err := page.Click(postsTabSelector); err != nil {
+		// Sometimes the page defaults to posts, so we check if the list is already there.
+		if visible, listErr := page.Locator("ul.profile-media-list").IsVisible(); !visible || listErr != nil {
+			return nil, fmt.Errorf("could not click 'posts' tab and no media list found: %w", err)
+		}
+		a.logger.Info("Could not click 'posts' tab, but media list is visible. Proceeding.", "user", userName)
 	}
 
-	// Scroll to load more posts (optional, can be adjusted based on needs)
-	err = scrollPageToLoadMore(page, 3) // Scroll 3 times to load more posts
-	if err != nil {
-		a.logger.Warn("Error while scrolling to load more posts", "error", err)
-		// Continue with what we have
+	// --- Step 4: Wait for the post list to be populated ---
+	mediaItemSelector := "li.profile-media-list__item"
+	if _, err = page.WaitForSelector(mediaItemSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(15000)}); err != nil {
+		a.logger.Warn("No posts found for user after switching to tab", "user", userName)
+		return []domain.PostItem{}, nil // Return empty, not an error.
 	}
 
-	// Extract post URLs
-	postLinks, err := page.Locator(postsSelector).All()
+	// --- Step 5: Extract post information ---
+	postLocators, err := page.Locator(mediaItemSelector).All()
 	if err != nil {
-		return nil, fmt.Errorf("failed to locate post links: %w", err)
+		return nil, fmt.Errorf("could not get post locators: %w", err)
 	}
 
 	var posts []domain.PostItem
-	for i, link := range postLinks {
-		if i >= 12 { // Limit to 12 most recent posts
+	idRegex := regexp.MustCompile(`_(\d+)_`)
+
+	for i, locator := range postLocators {
+		if i >= 12 { // Limit to 12 most recent posts, same as before
 			break
 		}
 
-		href, err := link.GetAttribute("href")
+		// The download link is the most reliable source for the media ID
+		downloadLink, err := locator.Locator("a.button__download").GetAttribute("href")
 		if err != nil {
-			a.logger.Warn("Failed to get post URL", "index", i, "error", err)
+			a.logger.Warn("Could not get download link for a post, skipping", "index", i)
 			continue
 		}
 
-		postURL := "https://www.instagram.com" + href
-		postID := extractPostIDFromURL(postURL)
+		// Extract a unique ID from the download URL.
+		// Example: .../508714993_18309646888214125_1467041143115731382_n.jpg
+		// We can use the middle part as a unique ID.
+		matches := idRegex.FindStringSubmatch(downloadLink)
+		var postID string
+		if len(matches) > 1 {
+			postID = matches[1]
+		} else {
+			// Fallback: if regex fails, use a less reliable part of the URL
+			parts := strings.Split(filepath.Base(downloadLink), "_")
+			if len(parts) > 1 {
+				postID = parts[1]
+			} else {
+				a.logger.Warn("Could not determine a unique ID for post, skipping", "index", i, "url", downloadLink)
+				continue
+			}
+		}
 
-		// Create a basic post item (we'll fetch details when needed)
+		// Construct a pseudo Post URL since the scraper doesn't provide the shortcode.
+		// This is okay for the subscription feature, as we only need a unique URL to pass to GetUserPost.
+		pseudoPostURL := fmt.Sprintf("https://www.instagram.com/p/%s/", postID)
+
 		posts = append(posts, domain.PostItem{
 			ID:       postID,
-			URL:      postURL,
+			PostURL:  pseudoPostURL, // Use the generated URL
+			URL:      pseudoPostURL, // Keep URL field for compatibility
 			Username: userName,
 		})
 	}
 
-	a.logger.Info("Successfully fetched posts", "username", userName, "count", len(posts))
+	a.logger.Info("Successfully fetched post list from scraper", "username", userName, "count", len(posts))
 	return posts, nil
+}
+
+func normalizePostURL(rawURL string) (string, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("could not parse URL: %w", err)
+	}
+	parsedURL.RawQuery = ""
+	parsedURL.Fragment = ""
+	return parsedURL.String(), nil
 }
 
 // GetUserPost retrieves details for a specific post
 func (a *APIAdapter) GetUserPost(ctx context.Context, postURL string) (*domain.PostItem, error) {
-	a.logger.Info("Fetching post details", "url", postURL)
+	a.logger.Info("Standardizing GetUserPost to use reliable scraper", "url", postURL)
 
-	// Normalize URL if needed
-	if !strings.Contains(postURL, "instagram.com") {
-		postURL = "https://www.instagram.com" + postURL
-	}
-
-	page, cleanup, err := a.newScrapingPage(ctx, postURL)
+	normalizedURL, err := normalizePostURL(postURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create page: %w", err)
-	}
-	defer cleanup()
-
-	// Wait for post to load
-	postSelector := "article"
-	if _, err = page.WaitForSelector(postSelector, playwright.PageWaitForSelectorOptions{
-		Timeout: playwright.Float(30000),
-		State:   playwright.WaitForSelectorStateAttached,
-	}); err != nil {
-		return nil, fmt.Errorf("post not found or could not load: %w", err)
+		a.logger.Warn("Failed to normalize URL, using original", "original_url", postURL, "error", err)
+		normalizedURL = postURL
 	}
 
-	// Extract post details
-	postID := extractPostIDFromURL(postURL)
-
-	// Get username
-	usernameSelector := "header a"
-	username, err := page.Locator(usernameSelector).First().InnerText()
-	if err != nil {
-		a.logger.Warn("Failed to get username", "error", err)
-		username = ""
-	}
-	username = strings.TrimSpace(username)
-
-	// Get caption
-	captionSelector := "ul li span"
-	caption, err := page.Locator(captionSelector).First().InnerText()
-	if err != nil {
-		a.logger.Debug("No caption found or error", "error", err)
-		caption = ""
-	}
-
-	// Get media URLs
-	var mediaURLs []string
-
-	// Try to find images
-	imgSelector := "article img[src]"
-	imgElements, err := page.Locator(imgSelector).All()
-	if err == nil {
-		for _, img := range imgElements {
-			src, err := img.GetAttribute("src")
-			if err == nil && src != "" && !strings.Contains(src, "profile_pic") {
-				mediaURLs = append(mediaURLs, src)
-			}
-		}
-	}
-
-	// Try to find videos
-	videoSelector := "article video source[src]"
-	videoElements, err := page.Locator(videoSelector).All()
-	if err == nil {
-		for _, video := range videoElements {
-			src, err := video.GetAttribute("src")
-			if err == nil && src != "" {
-				mediaURLs = append(mediaURLs, src)
-			}
-		}
-	}
-
-	post := &domain.PostItem{
-		ID:        postID,
-		URL:       postURL,
-		Username:  username,
-		Caption:   caption,
-		MediaURLs: mediaURLs,
-		Timestamp: time.Now(),
-	}
-
-	return post, nil
+	return a.scrapeMedia(ctx, normalizedURL, "post")
 }
 
 // Helper function to scroll the page to load more content
