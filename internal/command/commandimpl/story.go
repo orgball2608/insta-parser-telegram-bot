@@ -13,6 +13,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/formatter"
 )
 
 const helpMessage = `👋 *Welcome to the Instagram Parser Bot!*
@@ -124,7 +125,7 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 		return err
 	}
 
-	escapedUser := escapeMarkdownV2(userName)
+	escapedUser := formatter.EscapeMarkdownV2(userName)
 	initialMessage := fmt.Sprintf("Fetching stories for @%s... ⏳", escapedUser)
 	sentMsgID, err := c.Telegram.SendMessage(chatID, initialMessage)
 	if err != nil {
@@ -182,7 +183,7 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 	}
 
 	// Escape username for Markdown
-	escapedUser := escapeMarkdownV2(userName)
+	escapedUser := formatter.EscapeMarkdownV2(userName)
 	initialMessage := fmt.Sprintf("Fetching highlight albums for @%s... ⏳", escapedUser)
 	sentMsgID, err := c.Telegram.SendMessage(chatID, initialMessage)
 	if err != nil {
@@ -263,7 +264,7 @@ func (c *CommandImpl) handleCallback(ctx context.Context, callbackQuery *tgbotap
 	switch callbackData.Action {
 	case "dl_highlight":
 		// Escape username to avoid Markdown parsing errors
-		escapedUser := escapeMarkdownV2(callbackData.User)
+		escapedUser := formatter.EscapeMarkdownV2(callbackData.User)
 		// Update the message to show we're processing
 		c.Telegram.EditMessageText(
 			chatID,
@@ -281,7 +282,7 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 	// Get the highlight album
 	highlightReel, err := c.Instagram.GetSingleHighlightAlbum(userName, albumID)
 	if err != nil {
-		escapedUser := escapeMarkdownV2(userName)
+		escapedUser := formatter.EscapeMarkdownV2(userName)
 		errMsg := fmt.Sprintf("❌ Error fetching highlight album for @%s: %v", escapedUser, err)
 		if errors.Is(err, instagram.ErrPrivateAccount) {
 			errMsg = fmt.Sprintf("Account @%s is private, I cannot fetch highlights.", escapedUser)
@@ -296,7 +297,7 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 	}
 
 	// Escape title for Markdown
-	escapedTitle := escapeMarkdownV2(highlightReel.Title)
+	escapedTitle := formatter.EscapeMarkdownV2(highlightReel.Title)
 	// Update message to show we're downloading
 	c.Telegram.EditMessageText(chatID, messageID, fmt.Sprintf("Found %d items in '%s'. Downloading and preparing to send...", len(highlightReel.Items), escapedTitle))
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/subscription"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/formatter"
 )
 
 func (c *CommandImpl) handleSubscribe(ctx context.Context, chatID int64, args string) {
@@ -18,7 +19,7 @@ func (c *CommandImpl) handleSubscribe(ctx context.Context, chatID int64, args st
 	}
 
 	// Escape username for Markdown
-	escapedUsername := escapeMarkdownV2(username)
+	escapedUsername := formatter.EscapeMarkdownV2(username)
 	sub := domain.Subscription{
 		ChatID:            chatID,
 		InstagramUsername: username,
@@ -46,7 +47,7 @@ func (c *CommandImpl) handleUnsubscribe(ctx context.Context, chatID int64, args 
 	}
 
 	// Escape username for Markdown
-	escapedUsername := escapeMarkdownV2(username)
+	escapedUsername := formatter.EscapeMarkdownV2(username)
 	err := c.SubscriptionRepo.Delete(ctx, chatID, username)
 	if err != nil {
 		if errors.Is(err, subscription.ErrNotFound) {
@@ -78,7 +79,7 @@ func (c *CommandImpl) handleListSubscriptions(ctx context.Context, chatID int64)
 	builder.WriteString("📝 *You are currently subscribed to:* \n")
 	for i, sub := range subs {
 		// Escape username for Markdown
-		escapedUsername := escapeMarkdownV2(sub.InstagramUsername)
+		escapedUsername := formatter.EscapeMarkdownV2(sub.InstagramUsername)
 		builder.WriteString(fmt.Sprintf("%d. @%s\n", i+1, escapedUsername))
 	}
 

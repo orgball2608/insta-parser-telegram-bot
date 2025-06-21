@@ -8,6 +8,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/formatter"
 )
 
 func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Update) error {
@@ -20,7 +21,7 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 	}
 
 	// Escape URL for Markdown
-	escapedURL := escapeMarkdownV2(postURL)
+	escapedURL := formatter.EscapeMarkdownV2(postURL)
 	initialMessage := fmt.Sprintf("Fetching post from URL: %s... ⏳", escapedURL)
 	sentMsgID, err := c.Telegram.SendMessage(chatID, initialMessage)
 	if err != nil {
@@ -56,28 +57,28 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 	var captionBuilder strings.Builder
 	if post.Username != "" {
 		// Escape username for Markdown
-		escapedUsername := escapeMarkdownV2(post.Username)
+		escapedUsername := formatter.EscapeMarkdownV2(post.Username)
 		captionBuilder.WriteString(fmt.Sprintf("*Post by @%s*\n\n", escapedUsername))
 	}
 	if post.Caption != "" {
 		// Escape caption for Markdown
-		escapedCaption := escapeMarkdownV2(post.Caption)
+		escapedCaption := formatter.EscapeMarkdownV2(post.Caption)
 		captionBuilder.WriteString(escapedCaption)
 		captionBuilder.WriteString("\n\n")
 	}
 	if post.LikeCount > 0 {
-		captionBuilder.WriteString(fmt.Sprintf("❤️ %s", formatNumber(post.LikeCount)))
+		captionBuilder.WriteString(fmt.Sprintf("❤️ %s", formatter.FormatNumber(post.LikeCount)))
 	}
 	if post.PostedAgo != "" {
 		// Escape posted ago for Markdown
-		escapedPostedAgo := escapeMarkdownV2(post.PostedAgo)
+		escapedPostedAgo := formatter.EscapeMarkdownV2(post.PostedAgo)
 		captionBuilder.WriteString(fmt.Sprintf(" | 🕒 %s\n", escapedPostedAgo))
 	} else if post.LikeCount > 0 {
 		captionBuilder.WriteString("\n")
 	}
 
 	// Escape post URL for Markdown
-	escapedPostURL := escapeMarkdownV2(post.PostURL)
+	escapedPostURL := formatter.EscapeMarkdownV2(post.PostURL)
 	captionBuilder.WriteString(fmt.Sprintf("\n[View on Instagram](%s)", escapedPostURL))
 
 	captionToSend := captionBuilder.String()
