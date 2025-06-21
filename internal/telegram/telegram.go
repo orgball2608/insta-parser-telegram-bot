@@ -21,4 +21,5 @@ type Client interface {
 	SendMediaToDefaultChannelByUrl(url string)
 
 	DownloadMedia(url string) ([]byte, error)
+	DownloadMediaToTempFile(url string) (string, error)
 }

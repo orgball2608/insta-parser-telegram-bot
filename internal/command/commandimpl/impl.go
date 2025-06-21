@@ -8,6 +8,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/command"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/ratelimit"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/subscription"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/config"
@@ -25,6 +26,7 @@ type Opts struct {
 	Logger           logger.Logger
 	Config           *config.Config
 	SubscriptionRepo subscription.Repository
+	RateLimiter      ratelimit.Limiter
 }
 
 type CommandImpl struct {
@@ -34,6 +36,7 @@ type CommandImpl struct {
 	Logger           logger.Logger
 	Config           *config.Config
 	SubscriptionRepo subscription.Repository
+	RateLimiter      ratelimit.Limiter
 }
 
 func New(opts Opts) *CommandImpl {
@@ -44,6 +47,7 @@ func New(opts Opts) *CommandImpl {
 		Logger:           opts.Logger,
 		Config:           opts.Config,
 		SubscriptionRepo: opts.SubscriptionRepo,
+		RateLimiter:      opts.RateLimiter,
 	}
 }
 

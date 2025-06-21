@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/command"
@@ -18,6 +19,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram/api_adapter"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser"
 	paserimpl "github.com/orgball2608/insta-parser-telegram-bot/internal/parser/parserimpl"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/ratelimit"
 	repositories "github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/fx"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram/telegramimpl"
@@ -36,6 +38,11 @@ var Module = fx.Options(
 		pgx.New,
 		newHTTPServer,
 		api_adapter.NewPlaywrightManager,
+		// Rate limiter provider
+		func() ratelimit.Limiter {
+			// Allow 1 heavy command every 10 seconds, with a burst of 2 commands
+			return ratelimit.NewInMemoryLimiter(1, 10*time.Second, 2)
+		},
 	),
 	fx.Provide(
 		fx.Annotate(

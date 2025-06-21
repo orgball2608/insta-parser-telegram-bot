@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -88,19 +89,32 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 	args := update.Message.CommandArguments()
 	chatID := update.Message.Chat.ID
 
+	// Commands that don't need rate limiting
 	switch command {
 	case "start", "help":
 		_, err := c.Telegram.SendMessage(chatID, helpMessage)
 		return err
-	case "subscribe":
-		c.handleSubscribe(ctx, chatID, args)
+	case "subscribe", "unsubscribe", "listsubscriptions":
+		// Subscription commands are lightweight, no need for rate limiting
+		switch command {
+		case "subscribe":
+			c.handleSubscribe(ctx, chatID, args)
+		case "unsubscribe":
+			c.handleUnsubscribe(ctx, chatID, args)
+		case "listsubscriptions":
+			c.handleListSubscriptions(ctx, chatID)
+		}
 		return nil
-	case "unsubscribe":
-		c.handleUnsubscribe(ctx, chatID, args)
+	}
+
+	// Apply rate limiting for heavy commands
+	if !c.RateLimiter.Allow(chatID) {
+		c.Telegram.SendMessage(chatID, "⏳ You are making requests too quickly. Please wait a moment and try again.")
 		return nil
-	case "listsubscriptions":
-		c.handleListSubscriptions(ctx, chatID)
-		return nil
+	}
+
+	// Process heavy commands
+	switch command {
 	case "story":
 		return c.handleStoryCommand(ctx, update)
 	case "highlights":
@@ -375,53 +389,68 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 
 // processBatch handles downloading and sending a batch of media items
 func (c *CommandImpl) processBatch(ctx context.Context, chatID int64, batchItems []domain.StoryItem, albumTitle string, isFirstBatch bool) bool {
-	// Use WaitGroup to wait for all download goroutines in this batch to complete
 	var wg sync.WaitGroup
-	// Use channel to safely receive downloaded media data
-	mediaChannel := make(chan interface{}, len(batchItems))
+	// Channel now stores paths to temp files instead of media data
+	tempFilePathsChannel := make(chan string, len(batchItems))
 
-	// Start downloading all items in this batch concurrently
-	for i, item := range batchItems {
+	// Start downloading all items in this batch to temp files
+	for _, item := range batchItems {
 		wg.Add(1)
-		go func(mediaItem domain.StoryItem, index int) {
+		go func(mediaItem domain.StoryItem) {
 			defer wg.Done()
 
-			// Download media to memory with retry logic
-			data, err := c.Telegram.DownloadMedia(mediaItem.MediaURL)
+			// Download media to temp file instead of memory
+			filePath, err := c.Telegram.DownloadMediaToTempFile(mediaItem.MediaURL)
 			if err != nil {
-				c.Logger.Error("Failed to pre-download media", "url", mediaItem.MediaURL, "error", err)
+				c.Logger.Error("Failed to download media to temp file", "url", mediaItem.MediaURL, "error", err)
 				return // Skip this file if download fails
 			}
-
-			fileBytes := tgbotapi.FileBytes{
-				Name:  fmt.Sprintf("highlight_%d", index), // Use index as filename
-				Bytes: data,
-			}
-
-			// Create appropriate InputMedia based on file type
-			if strings.Contains(mediaItem.MediaURL, ".mp4") {
-				video := tgbotapi.NewInputMediaVideo(fileBytes)
-				mediaChannel <- video
-			} else {
-				photo := tgbotapi.NewInputMediaPhoto(fileBytes)
-				mediaChannel <- photo
-			}
-		}(item, i)
+			tempFilePathsChannel <- filePath
+		}(item)
 	}
 
-	// Wait for all downloads in this batch to complete
+	// Wait for all downloads to complete
 	wg.Wait()
-	close(mediaChannel) // Close channel so we can range over it
+	close(tempFilePathsChannel)
 
-	// Collect downloaded media from channel into a slice
-	var mediaGroup []interface{}
-	for media := range mediaChannel {
-		mediaGroup = append(mediaGroup, media)
+	// Collect temp file paths from channel
+	var tempFilePaths []string
+	for path := range tempFilePathsChannel {
+		tempFilePaths = append(tempFilePaths, path)
 	}
 
-	if len(mediaGroup) == 0 {
+	// IMPORTANT: Ensure temp files are always deleted
+	defer func() {
+		for _, path := range tempFilePaths {
+			if err := os.Remove(path); err != nil {
+				c.Logger.Warn("Failed to remove temp file", "path", path, "error", err)
+			}
+		}
+	}()
+
+	if len(tempFilePaths) == 0 {
 		c.Logger.Warn("Failed to download any media from batch", "batch_size", len(batchItems))
 		return false
+	}
+
+	// Create media group from file paths
+	mediaGroup := make([]interface{}, 0, len(tempFilePaths))
+	for i, path := range tempFilePaths {
+		// Find the original item to determine if it's a video or photo
+		var isVideo bool
+		if i < len(batchItems) {
+			isVideo = strings.Contains(batchItems[i].MediaURL, ".mp4")
+		}
+
+		// Use FilePath instead of FileBytes
+		fileData := tgbotapi.FilePath(path)
+
+		// Create appropriate media type based on file type
+		if isVideo {
+			mediaGroup = append(mediaGroup, tgbotapi.NewInputMediaVideo(fileData))
+		} else {
+			mediaGroup = append(mediaGroup, tgbotapi.NewInputMediaPhoto(fileData))
+		}
 	}
 
 	// Set caption only for the first media item in the first batch

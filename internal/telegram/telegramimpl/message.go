@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -96,6 +97,33 @@ func (tg *TelegramImpl) SendMediaToDefaultChannelByUrl(url string) {
 
 func (tg *TelegramImpl) DownloadMedia(url string) ([]byte, error) {
 	return tg.downloadWithRetry(url)
+}
+
+func (tg *TelegramImpl) DownloadMediaToTempFile(url string) (string, error) {
+	data, err := tg.downloadWithRetry(url)
+	if err != nil {
+		return "", err
+	}
+
+	// Create tmp directory if it doesn't exist
+	if err := os.MkdirAll("tmp", os.ModePerm); err != nil {
+		return "", fmt.Errorf("failed to create tmp directory: %w", err)
+	}
+
+	// Create a temporary file with pattern "media-*.tmp"
+	tmpFile, err := os.CreateTemp("tmp", "media-*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer tmpFile.Close()
+
+	if _, err := tmpFile.Write(data); err != nil {
+		// Try to remove the file if write fails
+		os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to write to temp file: %w", err)
+	}
+
+	return tmpFile.Name(), nil
 }
 
 func (tg *TelegramImpl) downloadWithRetry(url string) ([]byte, error) {
