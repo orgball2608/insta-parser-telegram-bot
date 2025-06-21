@@ -3,6 +3,7 @@ package story
 import (
 	"context"
 	"errors"
+	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
@@ -101,4 +102,24 @@ func (p *Pgx) Create(ctx context.Context, story domain.Story) error {
 	}
 
 	return nil
+}
+
+func (p *Pgx) CleanupOldRecords(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoffTime := time.Now().Add(-olderThan)
+
+	query, args, err := repositories.SqBuilder.
+		Delete("story_parsers").
+		Where(sq.Lt{"created_at": cutoffTime}).
+		ToSql()
+
+	if err != nil {
+		return 0, repositories.ErrBadQuery
+	}
+
+	result, err := p.pg.Exec(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected(), nil
 }

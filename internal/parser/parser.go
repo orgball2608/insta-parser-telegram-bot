@@ -2,6 +2,7 @@ package parser
 
 import (
 	"context"
+
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 )
 
@@ -12,4 +13,5 @@ type Client interface {
 	SaveHighlight(highlight domain.Highlights) error
 	SaveCurrentStory(currentStory domain.CurrentStory) error
 	ClearCurrentStories(username string) error
+	ScheduleDatabaseCleanup(ctx context.Context) error
 }

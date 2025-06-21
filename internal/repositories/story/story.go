@@ -3,8 +3,9 @@ package story
 import (
 	"context"
 	"errors"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	"time"
+
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 )
 
 type Story struct {
@@ -23,4 +24,5 @@ type Repository interface {
 	GetByID(ctx context.Context, id int) (*domain.Story, error)
 	GetByStoryID(ctx context.Context, storyID string) (*domain.Story, error)
 	Create(ctx context.Context, user domain.Story) error
+	CleanupOldRecords(ctx context.Context, olderThan time.Duration) (int64, error)
 }
