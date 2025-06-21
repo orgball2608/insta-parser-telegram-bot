@@ -2,11 +2,12 @@ package commandimpl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime/debug"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -48,6 +49,12 @@ func (c *CommandImpl) HandleCommand(ctx context.Context) error {
 			if !ok {
 				c.Logger.Warn("Telegram updates channel closed unexpectedly. Restarting handler...")
 				return errors.New("telegram updates channel closed")
+			}
+
+			// Handle callback queries (button clicks)
+			if update.CallbackQuery != nil {
+				go c.handleCallback(ctx, update.CallbackQuery)
+				continue
 			}
 
 			go func(u tgbotapi.Update) {
@@ -117,7 +124,8 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 		return err
 	}
 
-	initialMessage := fmt.Sprintf("Fetching stories for @%s... ⏳", userName)
+	escapedUser := escapeMarkdownV2(userName)
+	initialMessage := fmt.Sprintf("Fetching stories for @%s... ⏳", escapedUser)
 	sentMsgID, err := c.Telegram.SendMessage(chatID, initialMessage)
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
@@ -132,20 +140,20 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 
 	err = c.doWithRetryNotify(ctx, chatID, sentMsgID, initialMessage, "GetUserStories", op)
 	if err != nil {
-		errMsg := fmt.Sprintf("❌ Error fetching stories for @%s: %v", userName, err)
+		errMsg := fmt.Sprintf("❌ Error fetching stories for @%s: %v", escapedUser, err)
 		if errors.Is(err, instagram.ErrPrivateAccount) {
-			errMsg = fmt.Sprintf("Account @%s is private, I cannot fetch stories.", userName)
+			errMsg = fmt.Sprintf("Account @%s is private, I cannot fetch stories.", escapedUser)
 		}
 		c.Telegram.EditMessageText(chatID, sentMsgID, errMsg)
 		return err
 	}
 
 	if len(stories) == 0 {
-		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("No current stories found for @%s.", userName))
+		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("No current stories found for @%s.", escapedUser))
 		return nil
 	}
 
-	c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("✅ Found %d stories for @%s. Sending now...", len(stories), userName))
+	c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("✅ Found %d stories for @%s. Sending now...", len(stories), escapedUser))
 
 	if err := c.Parser.ClearCurrentStories(userName); err != nil {
 		c.Logger.Error("Error clearing current stories", "error", err)
@@ -160,109 +168,234 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 		}
 	}
 
-	c.Telegram.SendMessage(chatID, fmt.Sprintf("Finished sending %d stories for @%s.", len(stories), userName))
+	c.Telegram.SendMessage(chatID, fmt.Sprintf("Finished sending %d stories for @%s.", len(stories), escapedUser))
 	return nil
 }
 
 func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbotapi.Update) error {
-	args := strings.TrimSpace(update.Message.CommandArguments())
-	userName := strings.TrimSpace(args)
+	userName := strings.TrimSpace(update.Message.CommandArguments())
 	chatID := update.Message.Chat.ID
 
 	if userName == "" {
-		_, err := c.Telegram.SendMessage(chatID, "Please provide a username: /highlights <username>")
+		_, err := c.Telegram.SendMessage(chatID, "Please provide a username: /hls <username>")
 		return err
 	}
 
-	initialMessage := fmt.Sprintf("Fetching highlights for @%s... This may take a while. ⏳", userName)
+	// Escape username for Markdown
+	escapedUser := escapeMarkdownV2(userName)
+	initialMessage := fmt.Sprintf("Fetching highlight albums for @%s... ⏳", escapedUser)
 	sentMsgID, err := c.Telegram.SendMessage(chatID, initialMessage)
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
 	}
 
-	var processedCount int64
-	var reelsFound bool
-	var totalItems int64
-
-	processor := func(highlightReel domain.HighlightReel) error {
-		reelsFound = true
-		totalItems += int64(len(highlightReel.Items))
-
-		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("Processing album '%s' (%d items)... ⏳", highlightReel.Title, len(highlightReel.Items)))
-
-		if len(highlightReel.Items) == 0 {
-			return nil
-		}
-
-		mediaGroup := make([]interface{}, 0, len(highlightReel.Items))
-		caption := fmt.Sprintf("Highlight: %s", highlightReel.Title)
-
-		for i, item := range highlightReel.Items {
-			if item.MediaURL == "" {
-				continue
-			}
-
-			highlightItem := domain.Highlights{
-				UserName:  userName,
-				MediaURL:  item.MediaURL,
-				CreatedAt: time.Now(),
-			}
-			if err := c.Parser.SaveHighlight(highlightItem); err != nil {
-				c.Logger.Error("Error saving highlight to DB", "url", item.MediaURL, "error", err)
-			}
-
-			var mediaItem tgbotapi.RequestFileData = tgbotapi.FileURL(item.MediaURL)
-			if strings.Contains(item.MediaURL, ".mp4") {
-				video := tgbotapi.NewInputMediaVideo(mediaItem)
-				if i == 0 {
-					video.Caption = caption
-				}
-				mediaGroup = append(mediaGroup, video)
-			} else {
-				photo := tgbotapi.NewInputMediaPhoto(mediaItem)
-				if i == 0 {
-					photo.Caption = caption
-				}
-				mediaGroup = append(mediaGroup, photo)
-			}
-		}
-
-		if len(mediaGroup) > 0 {
-			if err := c.Telegram.SendMediaGroup(chatID, mediaGroup); err != nil {
-				c.Logger.Error("Failed to send highlight media group, falling back", "title", highlightReel.Title, "error", err)
-				c.Telegram.SendMessage(chatID, caption)
-				for _, item := range highlightReel.Items {
-					if item.MediaURL != "" {
-						c.Telegram.SendMediaByUrl(chatID, item.MediaURL)
-					}
-				}
-			}
-		}
-		atomic.AddInt64(&processedCount, int64(len(highlightReel.Items)))
-		return nil
-	}
-
+	var previews []domain.HighlightAlbumPreview
 	op := func() error {
-		return c.Instagram.GetUserHighlights(userName, processor)
+		var opErr error
+		previews, opErr = c.Instagram.GetHighlightAlbumPreviews(userName)
+		return opErr
 	}
 
-	err = c.doWithRetryNotify(ctx, chatID, sentMsgID, initialMessage, "GetUserHighlights", op)
+	err = c.doWithRetryNotify(ctx, chatID, sentMsgID, initialMessage, "GetHighlightAlbumPreviews", op)
 	if err != nil {
-		errMsg := fmt.Sprintf("❌ Error fetching highlights for @%s: %v", userName, err)
+		errMsg := fmt.Sprintf("❌ Error fetching highlights for @%s: %v", escapedUser, err)
 		if errors.Is(err, instagram.ErrPrivateAccount) {
-			errMsg = fmt.Sprintf("Account @%s is private, I cannot fetch highlights.", userName)
+			errMsg = fmt.Sprintf("Account @%s is private, I cannot fetch highlights.", escapedUser)
 		}
 		c.Telegram.EditMessageText(chatID, sentMsgID, errMsg)
 		return err
 	}
 
-	finalMessage := ""
-	if !reelsFound {
-		finalMessage = fmt.Sprintf("No highlights found for @%s.", userName)
-	} else {
-		finalMessage = fmt.Sprintf("✅ Finished! Sent %d/%d highlight items for @%s.", atomic.LoadInt64(&processedCount), totalItems, userName)
+	if len(previews) == 0 {
+		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("No highlights found for @%s.", escapedUser))
+		return nil
 	}
-	c.Telegram.EditMessageText(chatID, sentMsgID, finalMessage)
+
+	// Create inline keyboard with buttons for each album
+	var keyboardRows [][]tgbotapi.InlineKeyboardButton
+	for _, preview := range previews {
+		// Create callback data as JSON
+		callbackData, _ := json.Marshal(map[string]string{
+			"action":   "dl_highlight",
+			"user":     userName,
+			"album_id": preview.ID,
+		})
+
+		// Just use the title as button text
+		button := tgbotapi.NewInlineKeyboardButtonData(preview.Title, string(callbackData))
+		keyboardRows = append(keyboardRows, tgbotapi.NewInlineKeyboardRow(button))
+	}
+
+	// Create and send the message with inline keyboard
+	msgText := fmt.Sprintf("Found %d highlight albums for @%s\nPlease select an album to download:", len(previews), escapedUser)
+	msg := tgbotapi.NewMessage(chatID, msgText)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keyboardRows...)
+
+	// Delete the "Fetching..." message and send the new one with buttons
+	c.Telegram.DeleteMessage(tgbotapi.NewDeleteMessage(chatID, sentMsgID))
+	c.Telegram.Send(msg)
 
 	return nil
+}
+
+// New method to handle callback queries from button clicks
+func (c *CommandImpl) handleCallback(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery) {
+	// Acknowledge the callback to remove the loading animation on the button
+	callback := tgbotapi.NewCallback(callbackQuery.ID, "")
+	// Use Request instead of Send to avoid JSON unmarshal error
+	_, _ = c.Telegram.Request(callback)
+
+	// Parse the callback data
+	var callbackData struct {
+		Action  string `json:"action"`
+		User    string `json:"user"`
+		AlbumID string `json:"album_id"`
+	}
+
+	if err := json.Unmarshal([]byte(callbackQuery.Data), &callbackData); err != nil {
+		c.Logger.Error("Failed to unmarshal callback data", "error", err)
+		return
+	}
+
+	chatID := callbackQuery.Message.Chat.ID
+
+	// Handle different callback actions
+	switch callbackData.Action {
+	case "dl_highlight":
+		// Escape username to avoid Markdown parsing errors
+		escapedUser := escapeMarkdownV2(callbackData.User)
+		// Update the message to show we're processing
+		c.Telegram.EditMessageText(
+			chatID,
+			callbackQuery.Message.MessageID,
+			fmt.Sprintf("Downloading highlight album for @%s... ⏳", escapedUser),
+		)
+
+		// Download the selected highlight album
+		c.downloadSingleHighlightAlbum(ctx, chatID, callbackData.User, callbackData.AlbumID, callbackQuery.Message.MessageID)
+	}
+}
+
+// New method to download a single highlight album
+func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID int64, userName, albumID string, messageID int) {
+	// Get the highlight album
+	highlightReel, err := c.Instagram.GetSingleHighlightAlbum(userName, albumID)
+	if err != nil {
+		escapedUser := escapeMarkdownV2(userName)
+		errMsg := fmt.Sprintf("❌ Error fetching highlight album for @%s: %v", escapedUser, err)
+		if errors.Is(err, instagram.ErrPrivateAccount) {
+			errMsg = fmt.Sprintf("Account @%s is private, I cannot fetch highlights.", escapedUser)
+		}
+		c.Telegram.EditMessageText(chatID, messageID, errMsg)
+		return
+	}
+
+	if highlightReel == nil || len(highlightReel.Items) == 0 {
+		c.Telegram.EditMessageText(chatID, messageID, "No items found in this highlight album.")
+		return
+	}
+
+	// Escape title for Markdown
+	escapedTitle := escapeMarkdownV2(highlightReel.Title)
+	// Update message to show we're downloading
+	c.Telegram.EditMessageText(chatID, messageID, fmt.Sprintf("Found %d items in '%s'. Downloading and preparing to send...", len(highlightReel.Items), escapedTitle))
+
+	// --- BEGIN PRE-DOWNLOADING LOGIC ---
+
+	// Use WaitGroup to wait for all download goroutines to complete
+	var wg sync.WaitGroup
+	// Use channel to safely receive downloaded media data
+	mediaChannel := make(chan interface{}, len(highlightReel.Items))
+
+	for i, item := range highlightReel.Items {
+		if item.MediaURL == "" {
+			continue
+		}
+
+		wg.Add(1)
+		go func(mediaItem domain.StoryItem, index int) {
+			defer wg.Done()
+
+			// Download media to memory with retry logic
+			data, err := c.Telegram.DownloadMedia(mediaItem.MediaURL)
+			if err != nil {
+				c.Logger.Error("Failed to pre-download media", "url", mediaItem.MediaURL, "error", err)
+				return // Skip this file if download fails
+			}
+
+			fileBytes := tgbotapi.FileBytes{
+				Name:  fmt.Sprintf("highlight_%d", index), // Use index as filename
+				Bytes: data,
+			}
+
+			// Create appropriate InputMedia based on file type
+			if strings.Contains(mediaItem.MediaURL, ".mp4") {
+				video := tgbotapi.NewInputMediaVideo(fileBytes)
+				mediaChannel <- video
+			} else {
+				photo := tgbotapi.NewInputMediaPhoto(fileBytes)
+				mediaChannel <- photo
+			}
+		}(item, i)
+	}
+
+	// Wait for all downloads to complete
+	wg.Wait()
+	close(mediaChannel) // Close channel so we can range over it
+
+	// --- END PRE-DOWNLOADING LOGIC ---
+
+	// Collect downloaded media from channel into a slice
+	var mediaGroup []interface{}
+	for media := range mediaChannel {
+		mediaGroup = append(mediaGroup, media)
+	}
+
+	if len(mediaGroup) == 0 {
+		c.Telegram.EditMessageText(chatID, messageID, "Failed to download any media from the album.")
+		return
+	}
+
+	// Set caption for the first media item
+	caption := fmt.Sprintf("Highlight: %s", highlightReel.Title)
+	if len(mediaGroup) > 0 {
+		switch m := mediaGroup[0].(type) {
+		case tgbotapi.InputMediaVideo:
+			m.Caption = caption
+			mediaGroup[0] = m
+		case tgbotapi.InputMediaPhoto:
+			m.Caption = caption
+			mediaGroup[0] = m
+		}
+	}
+
+	// Save highlights to database
+	for _, item := range highlightReel.Items {
+		if item.MediaURL == "" {
+			continue
+		}
+
+		highlightItem := domain.Highlights{
+			UserName:  userName,
+			MediaURL:  item.MediaURL,
+			CreatedAt: time.Now(),
+		}
+		if err := c.Parser.SaveHighlight(highlightItem); err != nil {
+			c.Logger.Error("Error saving highlight to DB", "url", item.MediaURL, "error", err)
+		}
+	}
+
+	// Send media group
+	if err := c.Telegram.SendMediaGroup(chatID, mediaGroup); err != nil {
+		c.Logger.Error("Failed to send highlight media group, falling back", "title", highlightReel.Title, "error", err)
+		c.Telegram.SendMessage(chatID, caption)
+		for _, item := range highlightReel.Items {
+			if item.MediaURL != "" {
+				c.Telegram.SendMediaByUrl(chatID, item.MediaURL)
+			}
+		}
+	}
+
+	// Update final message
+	c.Telegram.EditMessageText(chatID, messageID, fmt.Sprintf("✅ Finished! Sent %d items from highlight album '%s'.", len(mediaGroup), escapedTitle))
 }

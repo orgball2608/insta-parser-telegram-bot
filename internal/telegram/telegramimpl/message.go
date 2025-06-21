@@ -94,6 +94,10 @@ func (tg *TelegramImpl) SendMediaToDefaultChannelByUrl(url string) {
 	}
 }
 
+func (tg *TelegramImpl) DownloadMedia(url string) ([]byte, error) {
+	return tg.downloadWithRetry(url)
+}
+
 func (tg *TelegramImpl) downloadWithRetry(url string) ([]byte, error) {
 	var media []byte
 	var downloadErr error
@@ -215,4 +219,23 @@ func (tg *TelegramImpl) SendMessageWithParseMode(chatID int64, text string, pars
 	}
 	tg.Logger.Info("Message with parse mode sent", "chatID", chatID, "messageID", sentMsg.MessageID)
 	return sentMsg.MessageID, nil
+}
+
+func (tg *TelegramImpl) DeleteMessage(config tgbotapi.DeleteMessageConfig) error {
+	_, err := tg.TgBot.Request(config)
+	if err != nil {
+		tg.Logger.Error("Error deleting message", "chatID", config.ChatID, "messageID", config.MessageID, "error", err)
+		return fmt.Errorf("failed to delete message: %w", err)
+	}
+	tg.Logger.Info("Message deleted successfully", "chatID", config.ChatID, "messageID", config.MessageID)
+	return nil
+}
+
+func (tg *TelegramImpl) Send(c tgbotapi.Chattable) (tgbotapi.Message, error) {
+	message, err := tg.TgBot.Send(c)
+	if err != nil {
+		tg.Logger.Error("Error sending message", "error", err)
+		return tgbotapi.Message{}, fmt.Errorf("failed to send message: %w", err)
+	}
+	return message, nil
 }

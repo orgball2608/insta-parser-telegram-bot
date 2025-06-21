@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -150,6 +151,162 @@ func (a *APIAdapter) GetUserStories(userName string) ([]domain.StoryItem, error)
 
 func (a *APIAdapter) GetUserHighlights(userName string, processorFunc instagram.HighlightReelProcessorFunc) error {
 	return a.scrapeHighlightLinks(userName, processorFunc)
+}
+
+func (a *APIAdapter) GetHighlightAlbumPreviews(userName string) ([]domain.HighlightAlbumPreview, error) {
+	a.logger.Info("Scraping highlight album previews", "user", userName)
+	page, cleanup, err := a.newScrapingPage(context.Background(), "https://instasupersave.com/en/instagram-stories/")
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
+		return nil, fmt.Errorf("could not type username: %w", err)
+	}
+	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
+
+	clickOperation := func() error {
+		return page.Click("button.search-form__button")
+	}
+	err = retry.Do(context.Background(), a.logger, "SearchButtonClick", clickOperation, retry.DefaultConfig())
+	if err != nil {
+		return nil, fmt.Errorf("could not click search button after retries: %w", err)
+	}
+
+	combinedSelector := ".output-profile, .error-message"
+	if _, err = page.WaitForSelector(combinedSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(90000)}); err != nil {
+		return nil, fmt.Errorf("search results or error message did not load in time: %w", err)
+	}
+
+	isPrivate, _ := page.IsVisible(".error-message")
+	if isPrivate {
+		a.logger.Warn("Account is private, cannot scrape highlights", "user", userName)
+		return nil, instagram.ErrPrivateAccount
+	}
+
+	a.logger.Info("Processing 'highlights' tab...")
+	tabSelector := "//button[contains(text(),'highlights')]"
+	if err := page.Click(tabSelector); err != nil {
+		return nil, fmt.Errorf("could not click highlights tab: %w", err)
+	}
+
+	highlightAlbumSelector := "button.highlight__button"
+	if _, err = page.WaitForSelector(highlightAlbumSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(15000)}); err != nil {
+		a.logger.Warn("No highlight albums found for user", "user", userName)
+		return []domain.HighlightAlbumPreview{}, nil
+	}
+
+	albumLocators, err := page.Locator(highlightAlbumSelector).All()
+	if err != nil {
+		return nil, fmt.Errorf("could not get highlight albums: %w", err)
+	}
+
+	var previews []domain.HighlightAlbumPreview
+	for i, locator := range albumLocators {
+		title, err := locator.Locator("p.highlight__title").InnerText()
+		if err != nil {
+			a.logger.Warn("Could not get title for album, using default", "index", i)
+			title = fmt.Sprintf("Highlight #%d", i+1)
+		}
+
+		coverURL, err := locator.Locator("img.highlight__image").GetAttribute("src")
+		if err != nil {
+			a.logger.Warn("Could not get cover URL for album", "title", title)
+			coverURL = ""
+		}
+
+		previews = append(previews, domain.HighlightAlbumPreview{
+			ID:       strconv.Itoa(i), // Use index as ID instead of title
+			Title:    title,
+			CoverURL: coverURL,
+		})
+	}
+
+	return previews, nil
+}
+
+func (a *APIAdapter) GetSingleHighlightAlbum(userName, albumID string) (*domain.HighlightReel, error) {
+	a.logger.Info("Scraping single highlight album", "user", userName, "albumID", albumID)
+
+	// Convert albumID from string to integer index
+	albumIndex, err := strconv.Atoi(albumID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid albumID, expected an index: %s", albumID)
+	}
+
+	page, cleanup, err := a.newScrapingPage(context.Background(), "https://instasupersave.com/en/instagram-stories/")
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
+		return nil, fmt.Errorf("could not type username: %w", err)
+	}
+	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
+
+	clickOperation := func() error {
+		return page.Click("button.search-form__button")
+	}
+	err = retry.Do(context.Background(), a.logger, "SearchButtonClick", clickOperation, retry.DefaultConfig())
+	if err != nil {
+		return nil, fmt.Errorf("could not click search button after retries: %w", err)
+	}
+
+	combinedSelector := ".output-profile, .error-message"
+	if _, err = page.WaitForSelector(combinedSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(90000)}); err != nil {
+		return nil, fmt.Errorf("search results or error message did not load in time: %w", err)
+	}
+
+	isPrivate, _ := page.IsVisible(".error-message")
+	if isPrivate {
+		a.logger.Warn("Account is private, cannot scrape highlights", "user", userName)
+		return nil, instagram.ErrPrivateAccount
+	}
+
+	a.logger.Info("Processing 'highlights' tab...")
+	tabSelector := "//button[contains(text(),'highlights')]"
+	if err := page.Click(tabSelector); err != nil {
+		return nil, fmt.Errorf("could not click highlights tab: %w", err)
+	}
+
+	// Get all highlight album buttons
+	albumSelector := "button.highlight__button"
+	if _, err = page.WaitForSelector(albumSelector, playwright.PageWaitForSelectorOptions{Timeout: playwright.Float(15000)}); err != nil {
+		return nil, fmt.Errorf("no highlight albums found on page: %w", err)
+	}
+
+	albumLocators, err := page.Locator(albumSelector).All()
+	if err != nil {
+		return nil, fmt.Errorf("could not get highlight album locators: %w", err)
+	}
+
+	// Check if the index is valid
+	if albumIndex >= len(albumLocators) {
+		return nil, fmt.Errorf("album index %d out of bounds, only %d albums available", albumIndex, len(albumLocators))
+	}
+
+	// Get the target album locator by index
+	targetAlbum := albumLocators[albumIndex]
+	title, _ := targetAlbum.Locator("p.highlight__title").InnerText()
+
+	// Click on the target album
+	if err := targetAlbum.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(5000)}); err != nil {
+		return nil, fmt.Errorf("could not click on album index %d: %w", albumIndex, err)
+	}
+
+	// Extract all items
+	items, err := scrollAndExtractAllItems(page, userName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &domain.HighlightReel{
+		ID:    albumID,
+		Title: title,
+		Items: items,
+	}, nil
 }
 
 func (a *APIAdapter) scrapeStoryLinks(userName string) ([]domain.StoryItem, error) {

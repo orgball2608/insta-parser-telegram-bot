@@ -1,6 +1,8 @@
 package telegramimpl
 
 import (
+	"fmt"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/config"
@@ -36,3 +38,13 @@ func New(opts Opts) (*TelegramImpl, error) {
 }
 
 var _ telegram.Client = (*TelegramImpl)(nil)
+
+// Request forwards the request to the underlying bot API
+func (tg *TelegramImpl) Request(c tgbotapi.Chattable) (*tgbotapi.APIResponse, error) {
+	resp, err := tg.TgBot.Request(c)
+	if err != nil {
+		tg.Logger.Error("Error making request", "error", err)
+		return nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	return resp, nil
+}

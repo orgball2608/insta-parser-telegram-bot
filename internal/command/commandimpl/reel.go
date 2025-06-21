@@ -19,7 +19,9 @@ func (c *CommandImpl) handleReelCommand(ctx context.Context, update tgbotapi.Upd
 		return err
 	}
 
-	initialMessage := fmt.Sprintf("Fetching Reel from URL: %s... ⏳", reelURL)
+	// Escape URL for Markdown
+	escapedURL := escapeMarkdownV2(reelURL)
+	initialMessage := fmt.Sprintf("Fetching Reel from URL: %s... ⏳", escapedURL)
 	sentMsgID, err := c.Telegram.SendMessage(chatID, initialMessage)
 	if err != nil {
 		return fmt.Errorf("failed to send initial message: %w", err)
@@ -52,22 +54,30 @@ func (c *CommandImpl) handleReelCommand(ctx context.Context, update tgbotapi.Upd
 
 	var captionBuilder strings.Builder
 	if reel.Username != "" {
-		captionBuilder.WriteString(fmt.Sprintf("*Reel by @%s*\n\n", reel.Username))
+		// Escape username for Markdown
+		escapedUsername := escapeMarkdownV2(reel.Username)
+		captionBuilder.WriteString(fmt.Sprintf("*Reel by @%s*\n\n", escapedUsername))
 	}
 	if reel.Caption != "" {
-		captionBuilder.WriteString(reel.Caption)
+		// Escape caption for Markdown
+		escapedCaption := escapeMarkdownV2(reel.Caption)
+		captionBuilder.WriteString(escapedCaption)
 		captionBuilder.WriteString("\n\n")
 	}
 	if reel.LikeCount > 0 {
 		captionBuilder.WriteString(fmt.Sprintf("❤️ %s", formatNumber(reel.LikeCount)))
 	}
 	if reel.PostedAgo != "" {
-		captionBuilder.WriteString(fmt.Sprintf(" | 🕒 %s\n", reel.PostedAgo))
+		// Escape posted ago for Markdown
+		escapedPostedAgo := escapeMarkdownV2(reel.PostedAgo)
+		captionBuilder.WriteString(fmt.Sprintf(" | 🕒 %s\n", escapedPostedAgo))
 	} else if reel.LikeCount > 0 {
 		captionBuilder.WriteString("\n")
 	}
 
-	captionBuilder.WriteString(fmt.Sprintf("\n[View on Instagram](%s)", reel.PostURL))
+	// Escape post URL for Markdown
+	escapedPostURL := escapeMarkdownV2(reel.PostURL)
+	captionBuilder.WriteString(fmt.Sprintf("\n[View on Instagram](%s)", escapedPostURL))
 
 	captionToSend := captionBuilder.String()
 

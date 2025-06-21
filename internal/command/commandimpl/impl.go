@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/command"
@@ -113,4 +114,19 @@ func (c *CommandImpl) doWithRetryNotify(
 	}
 
 	return retry.RetryWithCustomNotify(ctx, operationName, operation, retry.DefaultConfig(), notifyFunc)
+}
+
+// escapeMarkdownV2 escapes special characters in Markdown V2 format
+func escapeMarkdownV2(s string) string {
+	var sb strings.Builder
+	for _, r := range s {
+		switch r {
+		case '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!':
+			sb.WriteRune('\\')
+			sb.WriteRune(r)
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
 }
