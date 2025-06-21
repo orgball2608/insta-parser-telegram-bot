@@ -18,4 +18,5 @@ type Client interface {
 	GetSingleHighlightAlbum(userName, albumID string) (*domain.HighlightReel, error)
 	GetUserPost(ctx context.Context, postURL string) (*domain.PostItem, error)
 	GetUserReel(ctx context.Context, reelURL string) (*domain.PostItem, error)
+	GetUserPosts(ctx context.Context, userName string) ([]domain.PostItem, error)
 }

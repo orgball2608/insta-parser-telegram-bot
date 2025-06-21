@@ -111,7 +111,6 @@ func (p *Pgx) CleanupOldRecords(ctx context.Context, olderThan time.Duration) (i
 		Delete("story_parsers").
 		Where(sq.Lt{"created_at": cutoffTime}).
 		ToSql()
-
 	if err != nil {
 		return 0, repositories.ErrBadQuery
 	}

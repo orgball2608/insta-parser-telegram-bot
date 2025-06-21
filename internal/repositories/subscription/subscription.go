@@ -19,4 +19,9 @@ type Repository interface {
 	GetByChatID(ctx context.Context, chatID int64) ([]*domain.Subscription, error)
 	GetAllUniqueUsernames(ctx context.Context) ([]string, error)
 	GetSubscribersForUser(ctx context.Context, username string) ([]int64, error)
+
+	// New methods for subscription types
+	GetSubscribersForUserByType(ctx context.Context, username string, subscriptionType string) ([]int64, error)
+	GetAllUniqueUsernamesByType(ctx context.Context, subscriptionType string) ([]string, error)
+	UpdateSubscriptionType(ctx context.Context, chatID int64, username string, subscriptionType string) error
 }

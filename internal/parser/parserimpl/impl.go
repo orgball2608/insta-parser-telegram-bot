@@ -10,6 +10,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/currentstory"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/highlights"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/post"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/story"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/subscription"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
@@ -26,6 +27,7 @@ type Opts struct {
 	StoryRepo        story.Repository
 	HighlightsRepo   highlights.Repository
 	CurrentStoryRepo currentstory.Repository
+	PostRepo         post.Repository
 	Logger           logger.Logger
 	Config           *config.Config
 	SubscriptionRepo subscription.Repository
@@ -37,27 +39,41 @@ type ParserImpl struct {
 	StoryRepo        story.Repository
 	HighlightsRepo   highlights.Repository
 	CurrentStoryRepo currentstory.Repository
+	PostRepo         post.Repository
 	Logger           logger.Logger
 	Config           *config.Config
 	SubscriptionRepo subscription.Repository
+	Scheduler        gocron.Scheduler
 }
 
 func New(opts Opts) *ParserImpl {
+	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
+	if err != nil {
+		loc = time.Local
+		opts.Logger.Warn("Failed to load Asia/Ho_Chi_Minh timezone, using local timezone", "error", err)
+	}
+
+	scheduler, err := gocron.NewScheduler(gocron.WithLocation(loc))
+	if err != nil {
+		opts.Logger.Error("Failed to create scheduler", "error", err)
+	}
+
 	return &ParserImpl{
 		Instagram:        opts.Instagram,
 		Telegram:         opts.Telegram,
 		StoryRepo:        opts.StoryRepo,
 		HighlightsRepo:   opts.HighlightsRepo,
 		CurrentStoryRepo: opts.CurrentStoryRepo,
+		PostRepo:         opts.PostRepo,
 		Logger:           opts.Logger,
 		Config:           opts.Config,
 		SubscriptionRepo: opts.SubscriptionRepo,
+		Scheduler:        scheduler,
 	}
 }
 
 var _ parser.Client = (*ParserImpl)(nil)
 
-// ScheduleDatabaseCleanup sets up a daily job to clean up old records from the story_parsers table
 func (p *ParserImpl) ScheduleDatabaseCleanup(ctx context.Context) error {
 	loc, err := time.LoadLocation("Asia/Ho_Chi_Minh")
 	if err != nil {
@@ -70,11 +86,10 @@ func (p *ParserImpl) ScheduleDatabaseCleanup(ctx context.Context) error {
 		return fmt.Errorf("failed to create cleanup scheduler: %w", err)
 	}
 
-	// Schedule a job to run at 3:00 AM every day
 	_, err = scheduler.NewJob(
 		gocron.DailyJob(
 			1,
-			gocron.NewAtTimes(gocron.NewAtTime(3, 0, 0)), // At 3:00 AM
+			gocron.NewAtTimes(gocron.NewAtTime(3, 0, 0)),
 		),
 		gocron.NewTask(func() {
 			if ctx.Err() != nil {
@@ -87,7 +102,7 @@ func (p *ParserImpl) ScheduleDatabaseCleanup(ctx context.Context) error {
 			cleanupCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()
 
-			const cleanupDuration = 5 * 24 * time.Hour // 5 days
+			const cleanupDuration = 5 * 24 * time.Hour
 
 			rowsDeleted, err := p.StoryRepo.CleanupOldRecords(cleanupCtx, cleanupDuration)
 			if err != nil {

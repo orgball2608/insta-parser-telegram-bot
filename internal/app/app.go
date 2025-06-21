@@ -161,6 +161,11 @@ func startServices(
 				return pClient.ScheduleDatabaseCleanup(gCtx)
 			})
 
+			g.Go(func() error {
+				log.Info("Starting post checking scheduler")
+				return pClient.SchedulePostChecking(gCtx)
+			})
+
 			// Goroutine to wait for the first service to fail and initiate shutdown
 			go func() {
 				if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {

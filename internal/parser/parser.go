@@ -14,4 +14,5 @@ type Client interface {
 	SaveCurrentStory(currentStory domain.CurrentStory) error
 	ClearCurrentStories(username string) error
 	ScheduleDatabaseCleanup(ctx context.Context) error
+	SchedulePostChecking(ctx context.Context) error
 }

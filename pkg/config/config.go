@@ -13,6 +13,7 @@ type Config struct {
 	Telegram TelegramConfig `envPrefix:"TELEGRAM_"`
 	Postgres PostgresConfig `envPrefix:"POSTGRES_"`
 	Redis    RedisConfig    `envPrefix:"REDIS_"`
+	Parser   ParserConfig   `envPrefix:"PARSER_"`
 }
 
 type AppConfig struct {
@@ -44,6 +45,10 @@ type RedisConfig struct {
 	Port     int    `env:"PORT" envDefault:"6379"`
 	Password string `env:"PASSWORD" envDefault:""`
 	DB       int    `env:"DB" envDefault:"0"`
+}
+
+type ParserConfig struct {
+	PostCheckInterval string `env:"POST_CHECK_INTERVAL" envDefault:"@every 30m"`
 }
 
 func New() (*Config, error) {
