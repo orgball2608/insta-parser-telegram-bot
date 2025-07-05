@@ -5,11 +5,13 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
 
 	sq "github.com/Masterminds/squirrel"
 )
@@ -43,7 +45,11 @@ func (r *PgxRepository) Create(ctx context.Context, sub domain.Subscription) err
 		return repositories.ErrBadQuery
 	}
 
-	_, err = r.pool.Exec(ctx, query, args...)
+	execOperation := func() error {
+		_, err := r.pool.Exec(ctx, query, args...)
+		return err
+	}
+	err = retry.Do(ctx, r.logger, "CreateSubscription", execOperation, retry.DefaultConfig())
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -63,7 +69,13 @@ func (r *PgxRepository) Delete(ctx context.Context, chatID int64, username strin
 		return repositories.ErrBadQuery
 	}
 
-	result, err := r.pool.Exec(ctx, query, args...)
+	var result pgconn.CommandTag
+	execOperation := func() error {
+		var execErr error
+		result, execErr = r.pool.Exec(ctx, query, args...)
+		return execErr
+	}
+	err = retry.Do(ctx, r.logger, "DeleteSubscription", execOperation, retry.DefaultConfig())
 	if err != nil {
 		return err
 	}
@@ -86,7 +98,13 @@ func (r *PgxRepository) GetByChatID(ctx context.Context, chatID int64) ([]*domai
 		return nil, repositories.ErrBadQuery
 	}
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	var rows pgx.Rows
+	queryOperation := func() error {
+		var queryErr error
+		rows, queryErr = r.pool.Query(ctx, query, args...)
+		return queryErr
+	}
+	err = retry.Do(ctx, r.logger, "GetSubscriptionsByChatID", queryOperation, retry.DefaultConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +129,13 @@ func (r *PgxRepository) GetByChatID(ctx context.Context, chatID int64) ([]*domai
 func (r *PgxRepository) GetAllUniqueUsernames(ctx context.Context) ([]string, error) {
 	query := `SELECT DISTINCT instagram_username FROM subscriptions`
 
-	rows, err := r.pool.Query(ctx, query)
+	var rows pgx.Rows
+	var queryErr error
+	queryOperation := func() error {
+		rows, queryErr = r.pool.Query(ctx, query)
+		return queryErr
+	}
+	err := retry.Do(ctx, r.logger, "GetAllUniqueUsernames", queryOperation, retry.DefaultConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +167,13 @@ func (r *PgxRepository) GetSubscribersForUser(ctx context.Context, username stri
 		return nil, repositories.ErrBadQuery
 	}
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	var rows pgx.Rows
+	var queryErr error
+	queryOperation := func() error {
+		rows, queryErr = r.pool.Query(ctx, query, args...)
+		return queryErr
+	}
+	err = retry.Do(ctx, r.logger, "GetSubscribersForUser", queryOperation, retry.DefaultConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +223,13 @@ func (r *PgxRepository) GetSubscribersForUserByType(ctx context.Context, usernam
 		return nil, repositories.ErrBadQuery
 	}
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	var rows pgx.Rows
+	var queryErr error
+	queryOperation := func() error {
+		rows, queryErr = r.pool.Query(ctx, query, args...)
+		return queryErr
+	}
+	err = retry.Do(ctx, r.logger, "GetSubscribersForUserByType", queryOperation, retry.DefaultConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +274,13 @@ func (r *PgxRepository) GetAllUniqueUsernamesByType(ctx context.Context, subscri
 		}
 	}
 
-	rows, err := r.pool.Query(ctx, query, args...)
+	var rows pgx.Rows
+	var queryErr error
+	queryOperation := func() error {
+		rows, queryErr = r.pool.Query(ctx, query, args...)
+		return queryErr
+	}
+	err = retry.Do(ctx, r.logger, "GetAllUniqueUsernamesByType", queryOperation, retry.DefaultConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +316,13 @@ func (r *PgxRepository) UpdateSubscriptionType(ctx context.Context, chatID int64
 		return repositories.ErrBadQuery
 	}
 
-	result, err := r.pool.Exec(ctx, query, args...)
+	var result pgconn.CommandTag
+	var execErr error
+	execOperation := func() error {
+		result, execErr = r.pool.Exec(ctx, query, args...)
+		return execErr
+	}
+	err = retry.Do(ctx, r.logger, "UpdateSubscriptionType", execOperation, retry.DefaultConfig())
 	if err != nil {
 		return err
 	}

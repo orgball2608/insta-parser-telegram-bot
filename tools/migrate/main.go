@@ -105,4 +105,4 @@ func createMigration(name string) {
 	if err := goose.Create(db, migrationsDir, name, "sql"); err != nil {
 		log.Fatalf("Failed to create migration: %v", err)
 	}
-} 
+}

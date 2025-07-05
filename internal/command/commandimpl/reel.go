@@ -41,7 +41,9 @@ func (c *CommandImpl) handleReelCommand(ctx context.Context, update tgbotapi.Upd
 	err = c.doWithRetryNotify(ctx, chatID, sentMsgID, initialMessage, "GetUserReel", op)
 
 	if err != nil {
-		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("❌ Error fetching Reel: %v", err))
+		if err := c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("❌ Error fetching Reel: %v", err)); err != nil {
+			c.Logger.Error("Failed to edit message text", "error", err)
+		}
 		return fmt.Errorf("failed to get Reel from URL: %w", err)
 	}
 

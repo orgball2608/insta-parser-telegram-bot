@@ -28,8 +28,11 @@ func (a *APIAdapter) GetUserPosts(ctx context.Context, userName string) ([]domai
 	}
 	defer cleanup()
 
-	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
-		return nil, fmt.Errorf("could not type username: %w", err)
+	typeOperation := func() error {
+		return page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)})
+	}
+	if err = retry.Do(ctx, a.logger, "TypeUsername", typeOperation, retry.DefaultConfig()); err != nil {
+		return nil, fmt.Errorf("could not type username after retries: %w", err)
 	}
 	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
 
@@ -185,8 +188,11 @@ func (a *APIAdapter) scrapeMedia(ctx context.Context, mediaURL string, mediaType
 		return nil, fmt.Errorf("input field '%s' not visible: %w", inputSelector, err)
 	}
 
-	if err = page.Type(inputSelector, mediaURL, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
-		return nil, fmt.Errorf("could not type %s URL: %w", mediaType, err)
+	typeOperation := func() error {
+		return page.Type(inputSelector, mediaURL, playwright.PageTypeOptions{Timeout: playwright.Float(10000)})
+	}
+	if err = retry.Do(ctx, a.logger, "TypeMediaURL", typeOperation, retry.DefaultConfig()); err != nil {
+		return nil, fmt.Errorf("could not type %s URL after retries: %w", mediaType, err)
 	}
 
 	time.Sleep(time.Duration(500+rand.Intn(500)) * time.Millisecond)

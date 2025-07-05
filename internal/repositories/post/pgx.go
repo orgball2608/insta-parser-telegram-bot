@@ -10,6 +10,7 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
 
 	sq "github.com/Masterminds/squirrel"
 )
@@ -38,7 +39,12 @@ func (p *Pgx) Create(ctx context.Context, post domain.PostParser) error {
 		return repositories.ErrBadQuery
 	}
 
-	_, err = p.pg.Exec(ctx, query, args...)
+	execOperation := func() error {
+		_, err := p.pg.Exec(ctx, query, args...)
+		return err
+	}
+
+	err = retry.Do(ctx, p.logger, "CreatePostParser", execOperation, retry.DefaultConfig())
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {

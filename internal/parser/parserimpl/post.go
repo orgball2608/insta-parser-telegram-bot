@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
+
 	"github.com/go-co-op/gocron/v2"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/post"
@@ -46,6 +48,11 @@ func (p *ParserImpl) SchedulePostChecking(ctx context.Context) error {
 			usernames, err := p.SubscriptionRepo.GetAllUniqueUsernamesByType(checkCtx, domain.SubscriptionTypePost)
 			if err != nil {
 				p.Logger.Error("Failed to get usernames for post checking", "error", err)
+				return
+			}
+
+			if len(usernames) == 0 {
+				p.Logger.Info("No users subscribed. Skipping.")
 				return
 			}
 
@@ -142,12 +149,25 @@ func (p *ParserImpl) sendPostToSubscriber(ctx context.Context, chatID int64, pos
 	if len(post.MediaURLs) > 0 {
 		mediaURL := post.MediaURLs[0]
 
-		if post.IsVideo {
-			p.Telegram.SendMessage(chatID, fmt.Sprintf("%s\n\n🎬 [Watch Video](%s)", message, mediaURL))
-		} else {
-			p.Telegram.SendMessage(chatID, fmt.Sprintf("%s\n\n🖼️ [View Image](%s)", message, mediaURL))
+		sendMessageOperation := func() error {
+			var sendErr error
+			if post.IsVideo {
+				_, sendErr = p.Telegram.SendMessage(chatID, fmt.Sprintf("%s\n\n🎬 [Watch Video](%s)", message, mediaURL))
+			} else {
+				_, sendErr = p.Telegram.SendMessage(chatID, fmt.Sprintf("%s\n\n🖼️ [View Image](%s)", message, mediaURL))
+			}
+			return sendErr
+		}
+		if err := retry.Do(ctx, p.Logger, "SendMessage", sendMessageOperation, retry.DefaultConfig()); err != nil {
+			p.Logger.Error("Failed to send message after retries", "chatID", chatID, "postID", post.ID, "error", err)
 		}
 	} else {
-		p.Telegram.SendMessage(chatID, message)
+		sendMessageOperation := func() error {
+			_, sendErr := p.Telegram.SendMessage(chatID, message)
+			return sendErr
+		}
+		if err := retry.Do(ctx, p.Logger, "SendMessage", sendMessageOperation, retry.DefaultConfig()); err != nil {
+			p.Logger.Error("Failed to send message after retries", "chatID", chatID, "postID", post.ID, "error", err)
+		}
 	}
 }

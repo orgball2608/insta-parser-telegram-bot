@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
+
 	"github.com/go-co-op/gocron/v2"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	storyRepo "github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/story"
@@ -164,9 +166,11 @@ func (p *ParserImpl) processSubscribedUser(ctx context.Context, username string)
 		}
 
 		for _, chatID := range subscriberIDs {
-			err := p.Telegram.SendMediaByUrl(chatID, story.MediaURL)
-			if err != nil {
-				p.Logger.Error("Failed to send story to subscriber", "chat_id", chatID, "url", story.MediaURL, "error", err)
+			sendMediaOperation := func() error {
+				return p.Telegram.SendMediaByUrl(chatID, story.MediaURL)
+			}
+			if err := retry.Do(ctx, p.Logger, "SendMediaByUrl", sendMediaOperation, retry.DefaultConfig()); err != nil {
+				p.Logger.Error("Failed to send story to subscriber after retries", "chat_id", chatID, "url", story.MediaURL, "error", err)
 			}
 		}
 		time.Sleep(time.Duration(1500+rand.Intn(2000)) * time.Millisecond)

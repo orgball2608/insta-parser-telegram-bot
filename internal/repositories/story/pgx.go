@@ -7,77 +7,63 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
 )
 
-func NewPgx(pg *pgxpool.Pool) *Pgx {
+func NewPgx(pg *pgxpool.Pool, logger logger.Logger) *Pgx {
 	return &Pgx{
-		pg: pg,
+		pg:     pg,
+		logger: logger,
 	}
 }
 
 var _ Repository = (*Pgx)(nil)
 
 type Pgx struct {
-	pg *pgxpool.Pool
+	pg     *pgxpool.Pool
+	logger logger.Logger
+}
+
+func (p *Pgx) getStoryBy(ctx context.Context, cond sq.Eq, operationName string) (*domain.Story, error) {
+	query, args, err := repositories.SqBuilder.
+		Select("id", "story_id", "username", "created_at").
+		From("story_parsers").
+		Where(cond).ToSql()
+	if err != nil {
+		return nil, repositories.ErrBadQuery
+	}
+
+	story := Story{}
+	queryOperation := func() error {
+		return p.pg.QueryRow(ctx, query, args...).Scan(&story.ID, &story.StoryID, &story.UserName, &story.CreatedAt)
+	}
+	err = retry.Do(ctx, p.logger, operationName, queryOperation, retry.DefaultConfig())
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	return &domain.Story{
+		ID:        story.ID,
+		StoryID:   story.StoryID,
+		UserName:  story.UserName,
+		CreatedAt: story.CreatedAt,
+	}, nil
 }
 
 func (p *Pgx) GetByID(ctx context.Context, id int) (*domain.Story, error) {
-	query, args, err := repositories.SqBuilder.
-		Select("id", "story_id", "username", "created_at").
-		From("story_parsers").
-		Where(
-			sq.Eq{"id": id},
-		).ToSql()
-	if err != nil {
-		return nil, repositories.ErrBadQuery
-	}
-
-	story := Story{}
-	err = p.pg.QueryRow(ctx, query, args...).Scan(&story.ID, &story.StoryID, &story.UserName, &story.CreatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-
-	return &domain.Story{
-		ID:        story.ID,
-		StoryID:   story.StoryID,
-		UserName:  story.UserName,
-		CreatedAt: story.CreatedAt,
-	}, nil
+	return p.getStoryBy(ctx, sq.Eq{"id": id}, "GetStoryByID")
 }
 
 func (p *Pgx) GetByStoryID(ctx context.Context, storyID string) (*domain.Story, error) {
-	query, args, err := repositories.SqBuilder.
-		Select("id", "story_id", "username", "created_at").
-		From("story_parsers").
-		Where(
-			sq.Eq{"story_id": storyID},
-		).ToSql()
-	if err != nil {
-		return nil, repositories.ErrBadQuery
-	}
-
-	story := Story{}
-	err = p.pg.QueryRow(ctx, query, args...).Scan(&story.ID, &story.StoryID, &story.UserName, &story.CreatedAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-
-	return &domain.Story{
-		ID:        story.ID,
-		StoryID:   story.StoryID,
-		UserName:  story.UserName,
-		CreatedAt: story.CreatedAt,
-	}, nil
+	return p.getStoryBy(ctx, sq.Eq{"story_id": storyID}, "GetByStoryID")
 }
 
 func (p *Pgx) Create(ctx context.Context, story domain.Story) error {
@@ -96,7 +82,11 @@ func (p *Pgx) Create(ctx context.Context, story domain.Story) error {
 		return repositories.ErrBadQuery
 	}
 
-	_, err = p.pg.Exec(ctx, query, args...)
+	execOperation := func() error {
+		_, err := p.pg.Exec(ctx, query, args...)
+		return err
+	}
+	err = retry.Do(ctx, p.logger, "CreateStory", execOperation, retry.DefaultConfig())
 	if err != nil {
 		return errors.Join(err, ErrCannotCreate)
 	}
@@ -115,7 +105,13 @@ func (p *Pgx) CleanupOldRecords(ctx context.Context, olderThan time.Duration) (i
 		return 0, repositories.ErrBadQuery
 	}
 
-	result, err := p.pg.Exec(ctx, query, args...)
+	var result pgconn.CommandTag
+	execOperation := func() error {
+		var execErr error
+		result, execErr = p.pg.Exec(ctx, query, args...)
+		return execErr
+	}
+	err = retry.Do(ctx, p.logger, "CleanupOldRecords", execOperation, retry.DefaultConfig())
 	if err != nil {
 		return 0, err
 	}

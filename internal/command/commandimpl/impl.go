@@ -72,11 +72,13 @@ func (c *CommandImpl) doWithRetryNotify(
 			"next_attempt_in", d.Round(time.Millisecond).String(),
 		)
 
-		c.Telegram.EditMessageText(
+		if err := c.Telegram.EditMessageText(
 			chatID,
 			messageID,
-			fmt.Sprintf("%s\n\n_Operation failed, retrying... (Attempt %d)_", initialMessage, attempt),
-		)
+			fmt.Sprintf("%s Operation failed, retrying... (Attempt %d)_", initialMessage, attempt),
+		); err != nil {
+			c.Logger.Error("Failed to edit message text during retry notification", "error", err)
+		}
 	}
 
 	return retry.RetryWithCustomNotify(ctx, operationName, operation, retry.DefaultConfig(), notifyFunc)

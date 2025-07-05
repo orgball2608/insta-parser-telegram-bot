@@ -149,8 +149,12 @@ func (a *APIAdapter) GetHighlightAlbumPreviews(userName string) ([]domain.Highli
 	}
 	defer cleanup()
 
-	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
-		return nil, fmt.Errorf("could not type username: %w", err)
+	typeOperation := func() error {
+		return page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)})
+	}
+	err = retry.Do(context.Background(), a.logger, "TypeUsername", typeOperation, retry.DefaultConfig())
+	if err != nil {
+		return nil, fmt.Errorf("could not type username after retries: %w", err)
 	}
 	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
 
@@ -229,8 +233,12 @@ func (a *APIAdapter) GetSingleHighlightAlbum(userName, albumID string) (*domain.
 	}
 	defer cleanup()
 
-	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
-		return nil, fmt.Errorf("could not type username: %w", err)
+	typeOperation := func() error {
+		return page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)})
+	}
+	err = retry.Do(context.Background(), a.logger, "TypeUsername", typeOperation, retry.DefaultConfig())
+	if err != nil {
+		return nil, fmt.Errorf("could not type username after retries: %w", err)
 	}
 	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
 
@@ -305,8 +313,12 @@ func (a *APIAdapter) scrapeStoryLinks(userName string) ([]domain.StoryItem, erro
 	}
 	defer cleanup()
 
-	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
-		return nil, fmt.Errorf("could not type username: %w", err)
+	typeOperation := func() error {
+		return page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)})
+	}
+	err = retry.Do(context.Background(), a.logger, "TypeUsername", typeOperation, retry.DefaultConfig())
+	if err != nil {
+		return nil, fmt.Errorf("could not type username after retries: %w", err)
 	}
 
 	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
@@ -348,8 +360,12 @@ func (a *APIAdapter) scrapeHighlightLinks(userName string, processorFunc instagr
 	}
 	defer cleanup()
 
-	if err = page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)}); err != nil {
-		return fmt.Errorf("could not type username: %w", err)
+	typeOperation := func() error {
+		return page.Type("#search-form-input", userName, playwright.PageTypeOptions{Timeout: playwright.Float(10000)})
+	}
+	err = retry.Do(context.Background(), a.logger, "TypeUsername", typeOperation, retry.DefaultConfig())
+	if err != nil {
+		return fmt.Errorf("could not type username after retries: %w", err)
 	}
 
 	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)

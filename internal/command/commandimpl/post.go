@@ -41,18 +41,24 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 	err = c.doWithRetryNotify(ctx, chatID, sentMsgID, initialMessage, "GetUserPost", op)
 
 	if err != nil {
-		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("❌ Error fetching post: %v", err))
+		if err := c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("❌ Error fetching post: %v", err)); err != nil {
+			c.Logger.Error("Failed to edit message text", "error", err)
+		}
 		return fmt.Errorf("failed to get post from URL: %w", err)
 	}
 
 	if len(post.MediaURLs) == 0 {
-		c.Telegram.EditMessageText(chatID, sentMsgID, "Could not find any media in the provided URL.")
+		if err := c.Telegram.EditMessageText(chatID, sentMsgID, "Could not find any media in the provided URL."); err != nil {
+			c.Logger.Error("Failed to edit message text", "error", err)
+		}
 		return nil
 	}
 
 	post.PostURL = postURL
 
-	c.Telegram.EditMessageText(chatID, sentMsgID, "✅ Successfully fetched post info! Sending media now...")
+	if err := c.Telegram.EditMessageText(chatID, sentMsgID, "✅ Successfully fetched post info! Sending media now..."); err != nil {
+		c.Logger.Error("Failed to edit message text", "error", err)
+	}
 
 	mediaGroup := make([]interface{}, 0, len(post.MediaURLs))
 	var captionBuilder strings.Builder
@@ -104,7 +110,9 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 			c.Logger.Error("Failed to send media group, falling back to individual sending", "error", err)
 
 			if captionToSend != "" {
-				c.Telegram.SendMessage(chatID, captionToSend)
+				if _, err := c.Telegram.SendMessage(chatID, captionToSend); err != nil {
+					c.Logger.Error("Failed to send message", "error", err)
+				}
 			}
 			for _, mediaURL := range post.MediaURLs {
 				c.Telegram.SendMediaByUrl(chatID, mediaURL)

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
+	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
 )
 
 type PgxRepository struct {
@@ -32,12 +33,15 @@ func (r *PgxRepository) GetByID(ctx context.Context, id int) (*domain.Highlights
 	`
 
 	var highlights domain.Highlights
-	err := r.pool.QueryRow(ctx, query, id).Scan(
-		&highlights.ID,
-		&highlights.UserName,
-		&highlights.MediaURL,
-		&highlights.CreatedAt,
-	)
+	queryOperation := func() error {
+		return r.pool.QueryRow(ctx, query, id).Scan(
+			&highlights.ID,
+			&highlights.UserName,
+			&highlights.MediaURL,
+			&highlights.CreatedAt,
+		)
+	}
+	err := retry.Do(ctx, r.logger, "GetHighlightsByID", queryOperation, retry.DefaultConfig())
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
