@@ -133,18 +133,6 @@ func (a *APIAdapter) newScrapingPage(ctx context.Context, url string) (playwrigh
 	return page, cleanup, nil
 }
 
-// // setupRequestInterception block unnecessary resources
-// func setupRequestInterception(ctx playwright.BrowserContext) error {
-// 	return ctx.Route("**/*", func(route playwright.Route) {
-// 		resourceType := route.Request().ResourceType()
-// 		if resourceType == "image" || resourceType == "stylesheet" || resourceType == "font" || resourceType == "media" {
-// 			route.Abort()
-// 		} else {
-// 			route.Continue()
-// 		}
-// 	})
-// }
-
 func (a *APIAdapter) GetUserStories(userName string) ([]domain.StoryItem, error) {
 	return a.scrapeStoryLinks(userName)
 }

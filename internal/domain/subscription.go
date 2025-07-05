@@ -2,7 +2,6 @@ package domain
 
 import "time"
 
-// Subscription types
 const (
 	SubscriptionTypeStory = "story"
 	SubscriptionTypePost  = "post"
@@ -13,11 +12,10 @@ type Subscription struct {
 	ID                int
 	ChatID            int64
 	InstagramUsername string
-	SubscriptionType  string // Added field for subscription type
+	SubscriptionType  string
 	CreatedAt         time.Time
 }
 
-// IsValidSubscriptionType checks if the provided subscription type is valid
 func IsValidSubscriptionType(subType string) bool {
 	return subType == SubscriptionTypeStory ||
 		subType == SubscriptionTypePost ||

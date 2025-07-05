@@ -52,8 +52,6 @@ func (c *CommandImpl) HandleCommand(ctx context.Context) error {
 				c.Logger.Warn("Telegram updates channel closed unexpectedly. Restarting handler...")
 				return errors.New("telegram updates channel closed")
 			}
-
-			// Handle callback queries (button clicks)
 			if update.CallbackQuery != nil {
 				go c.handleCallback(ctx, update.CallbackQuery)
 				continue
@@ -89,13 +87,11 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 	args := update.Message.CommandArguments()
 	chatID := update.Message.Chat.ID
 
-	// Commands that don't need rate limiting
 	switch command {
 	case "start", "help":
 		_, err := c.Telegram.SendMessage(chatID, helpMessage)
 		return err
 	case "subscribe", "unsubscribe", "listsubscriptions":
-		// Subscription commands are lightweight, no need for rate limiting
 		switch command {
 		case "subscribe":
 			c.handleSubscribe(ctx, chatID, args)
@@ -107,13 +103,11 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 		return nil
 	}
 
-	// Apply rate limiting for heavy commands
 	if !c.RateLimiter.Allow(chatID) {
 		c.Telegram.SendMessage(chatID, "⏳ You are making requests too quickly. Please wait a moment and try again.")
 		return nil
 	}
 
-	// Process heavy commands
 	switch command {
 	case "story":
 		return c.handleStoryCommand(ctx, update)
@@ -196,7 +190,6 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 		return err
 	}
 
-	// Escape username for Markdown
 	escapedUser := formatter.EscapeMarkdownV2(userName)
 	initialMessage := fmt.Sprintf("Fetching highlight albums for @%s... ⏳", escapedUser)
 	sentMsgID, err := c.Telegram.SendMessage(chatID, initialMessage)
@@ -226,27 +219,22 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 		return nil
 	}
 
-	// Create inline keyboard with buttons for each album
 	var keyboardRows [][]tgbotapi.InlineKeyboardButton
 	for _, preview := range previews {
-		// Create callback data as JSON
 		callbackData, _ := json.Marshal(map[string]string{
 			"action":   "dl_highlight",
 			"user":     userName,
 			"album_id": preview.ID,
 		})
 
-		// Just use the title as button text
 		button := tgbotapi.NewInlineKeyboardButtonData(preview.Title, string(callbackData))
 		keyboardRows = append(keyboardRows, tgbotapi.NewInlineKeyboardRow(button))
 	}
 
-	// Create and send the message with inline keyboard
 	msgText := fmt.Sprintf("Found %d highlight albums for @%s\nPlease select an album to download:", len(previews), escapedUser)
 	msg := tgbotapi.NewMessage(chatID, msgText)
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keyboardRows...)
 
-	// Delete the "Fetching..." message and send the new one with buttons
 	c.Telegram.DeleteMessage(tgbotapi.NewDeleteMessage(chatID, sentMsgID))
 	c.Telegram.Send(msg)
 
@@ -255,12 +243,9 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 
 // New method to handle callback queries from button clicks
 func (c *CommandImpl) handleCallback(ctx context.Context, callbackQuery *tgbotapi.CallbackQuery) {
-	// Acknowledge the callback to remove the loading animation on the button
 	callback := tgbotapi.NewCallback(callbackQuery.ID, "")
-	// Use Request instead of Send to avoid JSON unmarshal error
 	_, _ = c.Telegram.Request(callback)
 
-	// Parse the callback data
 	var callbackData struct {
 		Action  string `json:"action"`
 		User    string `json:"user"`
@@ -274,26 +259,21 @@ func (c *CommandImpl) handleCallback(ctx context.Context, callbackQuery *tgbotap
 
 	chatID := callbackQuery.Message.Chat.ID
 
-	// Handle different callback actions
 	switch callbackData.Action {
 	case "dl_highlight":
-		// Escape username to avoid Markdown parsing errors
 		escapedUser := formatter.EscapeMarkdownV2(callbackData.User)
-		// Update the message to show we're processing
 		c.Telegram.EditMessageText(
 			chatID,
 			callbackQuery.Message.MessageID,
 			fmt.Sprintf("Downloading highlight album for @%s... ⏳", escapedUser),
 		)
 
-		// Download the selected highlight album
 		c.downloadSingleHighlightAlbum(ctx, chatID, callbackData.User, callbackData.AlbumID, callbackQuery.Message.MessageID)
 	}
 }
 
 // New method to download a single highlight album
 func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID int64, userName, albumID string, messageID int) {
-	// Get the highlight album
 	highlightReel, err := c.Instagram.GetSingleHighlightAlbum(userName, albumID)
 	if err != nil {
 		escapedUser := formatter.EscapeMarkdownV2(userName)
@@ -310,7 +290,6 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 		return
 	}
 
-	// Filter out items with empty MediaURL
 	var validItems []domain.StoryItem
 	for _, item := range highlightReel.Items {
 		if item.MediaURL != "" {
@@ -323,22 +302,18 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 		return
 	}
 
-	// Escape title for Markdown
 	escapedTitle := formatter.EscapeMarkdownV2(highlightReel.Title)
 	totalItems := len(validItems)
 
-	// Update message to show we're downloading
 	c.Telegram.EditMessageText(
 		chatID,
 		messageID,
 		fmt.Sprintf("Found %d items in '%s'. Processing in batches...", totalItems, escapedTitle),
 	)
 
-	// Constants for batch processing
-	const batchSize = 10                                     // Telegram's limit for media groups
-	totalBatches := (totalItems + batchSize - 1) / batchSize // Ceiling division
+	const batchSize = 10
+	totalBatches := (totalItems + batchSize - 1) / batchSize
 
-	// Save all items to database first
 	for _, item := range validItems {
 		highlightItem := domain.Highlights{
 			UserName:  userName,
@@ -350,10 +325,8 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 		}
 	}
 
-	// Process in batches
 	var successCount int
 	for batchIndex := 0; batchIndex < totalBatches; batchIndex++ {
-		// Calculate start and end indices for this batch
 		startIdx := batchIndex * batchSize
 		endIdx := startIdx + batchSize
 		if endIdx > totalItems {
@@ -363,7 +336,6 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 		batchItems := validItems[startIdx:endIdx]
 		batchSize := len(batchItems)
 
-		// Update progress message
 		c.Telegram.EditMessageText(
 			chatID,
 			messageID,
@@ -371,14 +343,12 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 				escapedTitle, batchIndex+1, totalBatches, batchSize),
 		)
 
-		// Process this batch
 		batchSuccess := c.processBatch(ctx, chatID, batchItems, highlightReel.Title, batchIndex == 0)
 		if batchSuccess {
 			successCount += batchSize
 		}
 	}
 
-	// Update final message
 	c.Telegram.EditMessageText(
 		chatID,
 		messageID,
@@ -390,36 +360,30 @@ func (c *CommandImpl) downloadSingleHighlightAlbum(ctx context.Context, chatID i
 // processBatch handles downloading and sending a batch of media items
 func (c *CommandImpl) processBatch(ctx context.Context, chatID int64, batchItems []domain.StoryItem, albumTitle string, isFirstBatch bool) bool {
 	var wg sync.WaitGroup
-	// Channel now stores paths to temp files instead of media data
 	tempFilePathsChannel := make(chan string, len(batchItems))
 
-	// Start downloading all items in this batch to temp files
 	for _, item := range batchItems {
 		wg.Add(1)
 		go func(mediaItem domain.StoryItem) {
 			defer wg.Done()
 
-			// Download media to temp file instead of memory
 			filePath, err := c.Telegram.DownloadMediaToTempFile(mediaItem.MediaURL)
 			if err != nil {
 				c.Logger.Error("Failed to download media to temp file", "url", mediaItem.MediaURL, "error", err)
-				return // Skip this file if download fails
+				return
 			}
 			tempFilePathsChannel <- filePath
 		}(item)
 	}
 
-	// Wait for all downloads to complete
 	wg.Wait()
 	close(tempFilePathsChannel)
 
-	// Collect temp file paths from channel
 	var tempFilePaths []string
 	for path := range tempFilePathsChannel {
 		tempFilePaths = append(tempFilePaths, path)
 	}
 
-	// IMPORTANT: Ensure temp files are always deleted
 	defer func() {
 		for _, path := range tempFilePaths {
 			if err := os.Remove(path); err != nil {
@@ -433,19 +397,15 @@ func (c *CommandImpl) processBatch(ctx context.Context, chatID int64, batchItems
 		return false
 	}
 
-	// Create media group from file paths
 	mediaGroup := make([]interface{}, 0, len(tempFilePaths))
 	for i, path := range tempFilePaths {
-		// Find the original item to determine if it's a video or photo
 		var isVideo bool
 		if i < len(batchItems) {
 			isVideo = strings.Contains(batchItems[i].MediaURL, ".mp4")
 		}
 
-		// Use FilePath instead of FileBytes
 		fileData := tgbotapi.FilePath(path)
 
-		// Create appropriate media type based on file type
 		if isVideo {
 			mediaGroup = append(mediaGroup, tgbotapi.NewInputMediaVideo(fileData))
 		} else {
@@ -453,7 +413,6 @@ func (c *CommandImpl) processBatch(ctx context.Context, chatID int64, batchItems
 		}
 	}
 
-	// Set caption only for the first media item in the first batch
 	if isFirstBatch && len(mediaGroup) > 0 {
 		caption := fmt.Sprintf("Highlight: %s", albumTitle)
 		switch m := mediaGroup[0].(type) {
@@ -466,11 +425,9 @@ func (c *CommandImpl) processBatch(ctx context.Context, chatID int64, batchItems
 		}
 	}
 
-	// Send media group
 	if err := c.Telegram.SendMediaGroup(chatID, mediaGroup); err != nil {
 		c.Logger.Error("Failed to send highlight media group batch", "title", albumTitle, "error", err)
 
-		// Fallback: try sending individually for this batch
 		caption := fmt.Sprintf("Highlight: %s", albumTitle)
 		if isFirstBatch {
 			c.Telegram.SendMessage(chatID, caption)

@@ -38,7 +38,6 @@ var Module = fx.Options(
 		pgx.New,
 		newHTTPServer,
 		api_adapter.NewPlaywrightManager,
-		// Rate limiter provider
 		func() ratelimit.Limiter {
 			// Allow 1 heavy command every 10 seconds, with a burst of 2 commands
 			return ratelimit.NewInMemoryLimiter(1, 10*time.Second, 2)
