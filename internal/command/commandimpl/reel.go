@@ -48,13 +48,17 @@ func (c *CommandImpl) handleReelCommand(ctx context.Context, update tgbotapi.Upd
 	}
 
 	if len(reel.MediaURLs) == 0 {
-		c.Telegram.EditMessageText(chatID, sentMsgID, "Could not find any media in the provided URL.")
+		if err := c.Telegram.EditMessageText(chatID, sentMsgID, "Could not find any media in the provided URL."); err != nil {
+			c.Logger.Error("Failed to edit message text", "error", err)
+		}
 		return nil
 	}
 
 	reel.PostURL = reelURL
 
-	c.Telegram.EditMessageText(chatID, sentMsgID, "✅ Successfully fetched Reel info! Sending video now...")
+	if err := c.Telegram.EditMessageText(chatID, sentMsgID, "✅ Successfully fetched Reel info! Sending video now..."); err != nil {
+		c.Logger.Error("Failed to edit message text", "error", err)
+	}
 
 	var captionBuilder strings.Builder
 	if reel.Username != "" {
@@ -86,7 +90,9 @@ func (c *CommandImpl) handleReelCommand(ctx context.Context, update tgbotapi.Upd
 	}
 
 	if captionToSend != "" {
-		c.Telegram.SendMessage(chatID, captionToSend)
+		if _, err := c.Telegram.SendMessage(chatID, captionToSend); err != nil {
+			c.Logger.Error("Failed to send message", "error", err)
+		}
 	}
 
 	return nil

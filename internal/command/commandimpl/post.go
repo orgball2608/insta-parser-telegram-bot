@@ -115,7 +115,9 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 				}
 			}
 			for _, mediaURL := range post.MediaURLs {
-				c.Telegram.SendMediaByUrl(chatID, mediaURL)
+				if err := c.Telegram.SendMediaByUrl(chatID, mediaURL); err != nil {
+					c.Logger.Error("Failed to send media by URL", "error", err)
+				}
 			}
 		}
 	}

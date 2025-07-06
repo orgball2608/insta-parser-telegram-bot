@@ -104,7 +104,8 @@ func (p *ParserImpl) ScheduleDatabaseCleanup(ctx context.Context) error {
 
 			const cleanupDuration = 5 * 24 * time.Hour
 
-			rowsDeleted, err := p.StoryRepo.CleanupOldRecords(cleanupCtx, cleanupDuration)
+			var rowsDeleted int64
+			rowsDeleted, err = p.StoryRepo.CleanupOldRecords(cleanupCtx, cleanupDuration)
 			if err != nil {
 				p.Logger.Error("Failed to clean up old records", "error", err)
 				return
@@ -123,8 +124,9 @@ func (p *ParserImpl) ScheduleDatabaseCleanup(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		p.Logger.Info("Stopping database cleanup scheduler")
-		if err := scheduler.Shutdown(); err != nil {
-			p.Logger.Error("Failed to shut down cleanup scheduler", "error", err)
+		shutdownErr := scheduler.Shutdown()
+		if shutdownErr != nil {
+			p.Logger.Error("Failed to shut down cleanup scheduler", "error", shutdownErr)
 		}
 	}()
 

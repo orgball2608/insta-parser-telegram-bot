@@ -40,7 +40,8 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 
 			p.Logger.Info("Starting scheduled story parsing for subscribed users...")
 
-			usernames, err := p.SubscriptionRepo.GetAllUniqueUsernames(taskCtx)
+			var usernames []string
+			usernames, err = p.SubscriptionRepo.GetAllUniqueUsernames(taskCtx)
 			if err != nil {
 				p.Logger.Error("Failed to get unique usernames from subscriptions", "error", err)
 				return
@@ -68,8 +69,9 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		p.Logger.Info("Stopping story parsing scheduler")
-		if err := scheduler.Shutdown(); err != nil {
-			p.Logger.Error("Failed to shut down scheduler", "error", err)
+		shutdownErr := scheduler.Shutdown()
+		if shutdownErr != nil {
+			p.Logger.Error("Failed to shut down scheduler", "error", shutdownErr)
 		}
 	}()
 
@@ -98,6 +100,7 @@ func (p *ParserImpl) runJobsWithAnts(ctx context.Context, usernames []string) {
 				} else {
 					p.Logger.Info("Worker successfully processed user", "username", userToProcess)
 				}
+				//gosec:G404
 				time.Sleep(time.Duration(1+rand.Intn(3)) * time.Second)
 			}
 		})
@@ -121,6 +124,22 @@ func (p *ParserImpl) processSubscribedUser(ctx context.Context, username string)
 		return nil
 	}
 
+	newStories, err := p.filterNewStories(stories)
+	if err != nil {
+		return fmt.Errorf("failed to filter new stories for %s: %w", username, err)
+	}
+
+	if len(newStories) == 0 {
+		p.Logger.Info("No new stories for user", "username", username)
+		return nil
+	}
+
+	p.Logger.Info("Found new stories", "username", username, "count", len(newStories))
+
+	return p.notifySubscribers(ctx, username, newStories)
+}
+
+func (p *ParserImpl) filterNewStories(stories []domain.StoryItem) ([]domain.StoryItem, error) {
 	var newStories []domain.StoryItem
 	for _, story := range stories {
 		exists, err := p.checkStoryExists(story.ID)
@@ -132,14 +151,10 @@ func (p *ParserImpl) processSubscribedUser(ctx context.Context, username string)
 			newStories = append(newStories, story)
 		}
 	}
+	return newStories, nil
+}
 
-	if len(newStories) == 0 {
-		p.Logger.Info("No new stories for user", "username", username)
-		return nil
-	}
-
-	p.Logger.Info("Found new stories", "username", username, "count", len(newStories))
-
+func (p *ParserImpl) notifySubscribers(ctx context.Context, username string, stories []domain.StoryItem) error {
 	subscriberIDs, err := p.SubscriptionRepo.GetSubscribersForUser(ctx, username)
 	if err != nil {
 		return fmt.Errorf("failed to get subscribers for %s: %w", username, err)
@@ -150,38 +165,50 @@ func (p *ParserImpl) processSubscribedUser(ctx context.Context, username string)
 		return nil
 	}
 
-	for _, story := range newStories {
-		dbStory := domain.Story{
-			StoryID:   story.ID,
-			UserName:  story.Username,
-			CreatedAt: story.TakenAt,
+	for _, story := range stories {
+		if err := p.saveAndSendStory(ctx, story, subscriberIDs); err != nil {
+			p.Logger.Error("Failed to send story", "story_id", story.ID, "error", err)
 		}
-		if err := p.StoryRepo.Create(ctx, dbStory); err != nil {
-			if errors.Is(err, storyRepo.ErrCannotCreate) {
-				p.Logger.Warn("Story might already exist or failed to create, skipping send", "story_id", dbStory.StoryID)
-				continue
-			}
-			p.Logger.Error("Failed to save story to DB", "story_id", dbStory.StoryID, "error", err)
-			continue
-		}
-
-		for _, chatID := range subscriberIDs {
-			sendMediaOperation := func() error {
-				return p.Telegram.SendMediaByUrl(chatID, story.MediaURL)
-			}
-			if err := retry.Do(ctx, p.Logger, "SendMediaByUrl", sendMediaOperation, retry.DefaultConfig()); err != nil {
-				p.Logger.Error("Failed to send story to subscriber after retries", "chat_id", chatID, "url", story.MediaURL, "error", err)
-			}
-		}
-		time.Sleep(time.Duration(1500+rand.Intn(2000)) * time.Millisecond)
 	}
 
+	return nil
+}
+
+func (p *ParserImpl) saveAndSendStory(ctx context.Context, story domain.StoryItem, subscriberIDs []int64) error {
+	dbStory := domain.Story{
+		StoryID:   story.ID,
+		UserName:  story.Username,
+		CreatedAt: story.TakenAt,
+	}
+	err := p.StoryRepo.Create(ctx, dbStory)
+	if err != nil {
+		if errors.Is(err, storyRepo.ErrCannotCreate) {
+			p.Logger.Warn("Story might already exist or failed to create, skipping send", "story_id", dbStory.StoryID)
+			return nil
+		}
+		p.Logger.Error("Failed to save story to DB", "story_id", dbStory.StoryID, "error", err)
+		return err
+	}
+
+	for _, chatID := range subscriberIDs {
+		sendMediaOperation := func() error {
+			return p.Telegram.SendMediaByUrl(chatID, story.MediaURL)
+		}
+		err = retry.Do(ctx, p.Logger, "SendMediaByUrl", sendMediaOperation, retry.DefaultConfig())
+		if err != nil {
+			p.Logger.Error("Failed to send story to subscriber after retries",
+				"chat_id", chatID, "url", story.MediaURL, "error", err)
+		}
+	}
+	//gosec:G404
+	time.Sleep(time.Duration(1500+rand.Intn(2000)) * time.Millisecond)
 	return nil
 }
 
 func shuffleUsernames(usernames []string) []string {
 	result := make([]string, len(usernames))
 	copy(result, usernames)
+	//gosec:G404
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	r.Shuffle(len(result), func(i, j int) {
 		result[i], result[j] = result[j], result[i]
@@ -211,7 +238,6 @@ func (p *ParserImpl) ProcessStories(stories []domain.StoryItem) error {
 		return nil
 	}
 
-	semaphore := make(chan struct{}, 3)
 	var wg sync.WaitGroup
 	var errsMutex sync.Mutex
 	var errs []error
@@ -220,67 +246,63 @@ func (p *ParserImpl) ProcessStories(stories []domain.StoryItem) error {
 
 	p.Logger.Info("Processing stories", "count", len(stories))
 
+	pool, _ := ants.NewPool(3, ants.WithPreAlloc(true))
+	defer pool.Release()
+
 	for _, story := range stories {
 		wg.Add(1)
-		semaphore <- struct{}{}
-
-		go func(item domain.StoryItem) {
-			defer func() {
-				<-semaphore
-				wg.Done()
-				if r := recover(); r != nil {
-					errsMutex.Lock()
-					errs = append(errs, fmt.Errorf("panic in story processing: %v", r))
-					errsMutex.Unlock()
-					statsMutex.Lock()
-					failed++
-					statsMutex.Unlock()
-				}
-			}()
-
-			exists, err := p.checkStoryExists(item.ID)
+		storyToProcess := story
+		err := pool.Submit(func() {
+			defer wg.Done()
+			err := p.processSingleStory(storyToProcess)
 			if err != nil {
 				errsMutex.Lock()
-				errs = append(errs, fmt.Errorf("failed to check story existence: %w", err))
+				errs = append(errs, err)
 				errsMutex.Unlock()
 				statsMutex.Lock()
 				failed++
 				statsMutex.Unlock()
-				return
-			}
-
-			if exists {
-				p.Logger.Debug("Story already processed", "storyID", item.ID)
+			} else {
 				statsMutex.Lock()
-				skipped++
+				processed++
 				statsMutex.Unlock()
-				return
 			}
-
-			if err := p.processStoryItem(item); err != nil {
-				errsMutex.Lock()
-				errs = append(errs, fmt.Errorf("failed to process story %s: %w", item.ID, err))
-				errsMutex.Unlock()
-				statsMutex.Lock()
-				failed++
-				statsMutex.Unlock()
-				return
-			}
-
+		})
+		if err != nil {
+			wg.Done()
+			p.Logger.Error("Failed to submit story processing job", "story_id", storyToProcess.ID, "error", err)
 			statsMutex.Lock()
-			processed++
+			failed++
 			statsMutex.Unlock()
-		}(story)
+		}
 	}
 
 	wg.Wait()
-	close(semaphore)
 
-	p.Logger.Info("Story processing completed", "total", len(stories), "processed", processed, "skipped", skipped, "failed", failed)
+	p.Logger.Info("Story processing completed", "total", len(stories),
+		"processed", processed, "skipped", skipped, "failed", failed)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("encountered %d errors during story parsing, first error: %w", len(errs), errs[0])
 	}
+	return nil
+}
+
+func (p *ParserImpl) processSingleStory(item domain.StoryItem) error {
+	exists, err := p.checkStoryExists(item.ID)
+	if err != nil {
+		return fmt.Errorf("failed to check story existence: %w", err)
+	}
+
+	if exists {
+		p.Logger.Debug("Story already processed", "storyID", item.ID)
+		return nil
+	}
+
+	if err := p.processStoryItem(item); err != nil {
+		return fmt.Errorf("failed to process story %s: %w", item.ID, err)
+	}
+
 	return nil
 }
 
@@ -324,6 +346,7 @@ func (p *ParserImpl) processStoryItem(item domain.StoryItem) error {
 	p.Logger.Info("Processing media item", "username", item.Username, "url", item.MediaURL, "type", item.MediaType)
 	p.Telegram.SendMediaToDefaultChannelByUrl(item.MediaURL)
 
+	//gosec:G404
 	delay := time.Duration(1500+rand.Intn(2000)) * time.Millisecond
 	p.Logger.Info("Scheduled job: Waiting to avoid rate limit", "delay", delay)
 	time.Sleep(delay)

@@ -31,7 +31,7 @@ func NewPgxRepository(pool *pgxpool.Pool, logger logger.Logger) *PgxRepository {
 var _ Repository = (*PgxRepository)(nil)
 
 func (r *PgxRepository) Create(ctx context.Context, sub domain.Subscription) error {
-	// Set default subscription type if not specified
+	// Set default subscription type if not specified.
 	if sub.SubscriptionType == "" {
 		sub.SubscriptionType = domain.SubscriptionTypeStory
 	}
@@ -46,8 +46,9 @@ func (r *PgxRepository) Create(ctx context.Context, sub domain.Subscription) err
 	}
 
 	execOperation := func() error {
-		_, err := r.pool.Exec(ctx, query, args...)
-		return err
+		var execErr error
+		_, execErr = r.pool.Exec(ctx, query, args...)
+		return execErr
 	}
 	err = retry.Do(ctx, r.logger, "CreateSubscription", execOperation, retry.DefaultConfig())
 	if err != nil {
@@ -113,14 +114,16 @@ func (r *PgxRepository) GetByChatID(ctx context.Context, chatID int64) ([]*domai
 	var subs []*domain.Subscription
 	for rows.Next() {
 		var sub domain.Subscription
-		if err := rows.Scan(&sub.ID, &sub.ChatID, &sub.InstagramUsername, &sub.SubscriptionType, &sub.CreatedAt); err != nil {
-			return nil, err
+		scanErr := rows.Scan(&sub.ID, &sub.ChatID, &sub.InstagramUsername, &sub.SubscriptionType, &sub.CreatedAt)
+		if scanErr != nil {
+			return nil, scanErr
 		}
 		subs = append(subs, &sub)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, err
+	scanErr := rows.Err()
+	if scanErr != nil {
+		return nil, scanErr
 	}
 
 	return subs, nil
@@ -144,14 +147,16 @@ func (r *PgxRepository) GetAllUniqueUsernames(ctx context.Context) ([]string, er
 	var usernames []string
 	for rows.Next() {
 		var username string
-		if err := rows.Scan(&username); err != nil {
-			return nil, err
+		scanErr := rows.Scan(&username)
+		if scanErr != nil {
+			return nil, scanErr
 		}
 		usernames = append(usernames, username)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, err
+	scanErr := rows.Err()
+	if scanErr != nil {
+		return nil, scanErr
 	}
 
 	return usernames, nil
@@ -182,41 +187,36 @@ func (r *PgxRepository) GetSubscribersForUser(ctx context.Context, username stri
 	var chatIDs []int64
 	for rows.Next() {
 		var chatID int64
-		if err := rows.Scan(&chatID); err != nil {
-			return nil, err
+		scanErr := rows.Scan(&chatID)
+		if scanErr != nil {
+			return nil, scanErr
 		}
 		chatIDs = append(chatIDs, chatID)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, err
+	scanErr := rows.Err()
+	if scanErr != nil {
+		return nil, scanErr
 	}
 
 	return chatIDs, nil
 }
 
-// GetSubscribersForUserByType returns chat IDs of users subscribed to a specific username with a specific subscription type
-func (r *PgxRepository) GetSubscribersForUserByType(ctx context.Context, username string, subscriptionType string) ([]int64, error) {
-	var builder sq.SelectBuilder
-	if subscriptionType == domain.SubscriptionTypeAll {
-		builder = repositories.SqBuilder.
-			Select("chat_id").
-			From("subscriptions").
-			Where(sq.Eq{"instagram_username": username}).
-			Where(sq.Or{
-				sq.Eq{"subscription_type": domain.SubscriptionTypeAll},
-				sq.Eq{"subscription_type": subscriptionType},
-			})
-	} else {
-		builder = repositories.SqBuilder.
-			Select("chat_id").
-			From("subscriptions").
-			Where(sq.Eq{"instagram_username": username}).
-			Where(sq.Or{
-				sq.Eq{"subscription_type": domain.SubscriptionTypeAll},
-				sq.Eq{"subscription_type": subscriptionType},
-			})
-	}
+// GetSubscribersForUserByType returns chat IDs of users subscribed to a specific username
+// with a specific subscription type.
+func (r *PgxRepository) GetSubscribersForUserByType(
+	ctx context.Context,
+	username string,
+	subscriptionType string,
+) ([]int64, error) {
+	builder := repositories.SqBuilder.
+		Select("chat_id").
+		From("subscriptions").
+		Where(sq.Eq{"instagram_username": username}).
+		Where(sq.Or{
+			sq.Eq{"subscription_type": domain.SubscriptionTypeAll},
+			sq.Eq{"subscription_type": subscriptionType},
+		})
 
 	query, args, err := builder.ToSql()
 	if err != nil {
@@ -238,21 +238,26 @@ func (r *PgxRepository) GetSubscribersForUserByType(ctx context.Context, usernam
 	var chatIDs []int64
 	for rows.Next() {
 		var chatID int64
-		if err := rows.Scan(&chatID); err != nil {
-			return nil, err
+		scanErr := rows.Scan(&chatID)
+		if scanErr != nil {
+			return nil, scanErr
 		}
 		chatIDs = append(chatIDs, chatID)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, err
+	scanErr := rows.Err()
+	if scanErr != nil {
+		return nil, scanErr
 	}
 
 	return chatIDs, nil
 }
 
-// GetAllUniqueUsernamesByType returns all unique usernames with a specific subscription type
-func (r *PgxRepository) GetAllUniqueUsernamesByType(ctx context.Context, subscriptionType string) ([]string, error) {
+// GetAllUniqueUsernamesByType returns all unique usernames with a specific subscription type.
+func (r *PgxRepository) GetAllUniqueUsernamesByType(
+	ctx context.Context,
+	subscriptionType string,
+) ([]string, error) {
 	var query string
 	var args []interface{}
 	var err error
@@ -289,21 +294,28 @@ func (r *PgxRepository) GetAllUniqueUsernamesByType(ctx context.Context, subscri
 	var usernames []string
 	for rows.Next() {
 		var username string
-		if err := rows.Scan(&username); err != nil {
-			return nil, err
+		scanErr := rows.Scan(&username)
+		if scanErr != nil {
+			return nil, scanErr
 		}
 		usernames = append(usernames, username)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, err
+	scanErr := rows.Err()
+	if scanErr != nil {
+		return nil, scanErr
 	}
 
 	return usernames, nil
 }
 
-// UpdateSubscriptionType updates the subscription type for a specific chat ID and username
-func (r *PgxRepository) UpdateSubscriptionType(ctx context.Context, chatID int64, username string, subscriptionType string) error {
+// UpdateSubscriptionType updates the subscription type for a specific chat ID and username.
+func (r *PgxRepository) UpdateSubscriptionType(
+	ctx context.Context,
+	chatID int64,
+	username string,
+	subscriptionType string,
+) error {
 	query, args, err := repositories.SqBuilder.
 		Update("subscriptions").
 		Set("subscription_type", subscriptionType).
@@ -334,7 +346,7 @@ func (r *PgxRepository) UpdateSubscriptionType(ctx context.Context, chatID int64
 	return nil
 }
 
-// Helper to sanitize username input
+// Helper to sanitize username input.
 func SanitizeUsername(username string) string {
 	return strings.ToLower(strings.Trim(username, "@ "))
 }

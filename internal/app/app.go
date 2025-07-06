@@ -34,7 +34,6 @@ import (
 var Module = fx.Options(
 	fx.Provide(
 		config.New,
-		logger.FxOption,
 		pgx.New,
 		newHTTPServer,
 		api_adapter.NewPlaywrightManager,
@@ -43,6 +42,7 @@ var Module = fx.Options(
 			return ratelimit.NewInMemoryLimiter(1, 10*time.Second, 2)
 		},
 	),
+	logger.FxOption(),
 	fx.Provide(
 		fx.Annotate(
 			telegramimpl.New,

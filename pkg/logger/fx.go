@@ -6,23 +6,27 @@ import (
 	"go.uber.org/fx"
 )
 
-var FxOption = fx.Annotate(
-	func(cfg *config.Config) *Impl {
-		client, err := sentry.NewClient(sentry.ClientOptions{
-			Dsn:              cfg.App.SentryUrl,
-			TracesSampleRate: 1.0,
-		})
+func FxOption() fx.Option {
+	return fx.Provide(
+		fx.Annotate(
+			func(cfg *config.Config) *Impl {
+				client, err := sentry.NewClient(sentry.ClientOptions{
+					Dsn:              cfg.App.SentryUrl,
+					TracesSampleRate: 1.0,
+				})
 
-		if err != nil {
-			panic(err)
-		}
+				if err != nil {
+					panic(err)
+				}
 
-		return New(
-			Opts{
-				Env:    cfg.App.Environment,
-				Sentry: client,
+				return New(
+					Opts{
+						Env:    cfg.App.Environment,
+						Sentry: client,
+					},
+				)
 			},
-		)
-	},
-	fx.As(new(Logger)),
-)
+			fx.As(new(Logger)),
+		),
+	)
+}

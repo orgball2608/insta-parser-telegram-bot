@@ -104,7 +104,9 @@ func (c *CommandImpl) processCommand(ctx context.Context, update tgbotapi.Update
 	}
 
 	if !c.RateLimiter.Allow(chatID) {
-		c.Telegram.SendMessage(chatID, "⏳ You are making requests too quickly. Please wait a moment and try again.")
+		if _, err := c.Telegram.SendMessage(chatID, "⏳ You are making requests too quickly. Please wait a moment and try again."); err != nil {
+			c.Logger.Error("Failed to send message", "error", err)
+		}
 		return nil
 	}
 
@@ -153,16 +155,22 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 		if errors.Is(err, instagram.ErrPrivateAccount) {
 			errMsg = fmt.Sprintf("Account @%s is private, I cannot fetch stories.", escapedUser)
 		}
-		c.Telegram.EditMessageText(chatID, sentMsgID, errMsg)
+		if err := c.Telegram.EditMessageText(chatID, sentMsgID, errMsg); err != nil {
+			c.Logger.Error("Failed to edit message text", "error", err)
+		}
 		return err
 	}
 
 	if len(stories) == 0 {
-		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("No current stories found for @%s.", escapedUser))
+		if err := c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("No current stories found for @%s.", escapedUser)); err != nil {
+			c.Logger.Error("Failed to edit message text", "error", err)
+		}
 		return nil
 	}
 
-	c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("✅ Found %d stories for @%s. Sending now...", len(stories), escapedUser))
+	if err := c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("✅ Found %d stories for @%s. Sending now...", len(stories), escapedUser)); err != nil {
+		c.Logger.Error("Failed to edit message text", "error", err)
+	}
 
 	if err := c.Parser.ClearCurrentStories(userName); err != nil {
 		c.Logger.Error("Error clearing current stories", "error", err)
@@ -177,7 +185,9 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 		}
 	}
 
-	c.Telegram.SendMessage(chatID, fmt.Sprintf("Finished sending %d stories for @%s.", len(stories), escapedUser))
+	if _, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Finished sending %d stories for @%s.", len(stories), escapedUser)); err != nil {
+		c.Logger.Error("Failed to send message", "error", err)
+	}
 	return nil
 }
 
@@ -210,12 +220,16 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 		if errors.Is(err, instagram.ErrPrivateAccount) {
 			errMsg = fmt.Sprintf("Account @%s is private, I cannot fetch highlights.", escapedUser)
 		}
-		c.Telegram.EditMessageText(chatID, sentMsgID, errMsg)
+		if err := c.Telegram.EditMessageText(chatID, sentMsgID, errMsg); err != nil {
+			c.Logger.Error("Failed to edit message text", "error", err)
+		}
 		return err
 	}
 
 	if len(previews) == 0 {
-		c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("No highlights found for @%s.", escapedUser))
+		if err := c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("No highlights found for @%s.", escapedUser)); err != nil {
+			c.Logger.Error("Failed to edit message text", "error", err)
+		}
 		return nil
 	}
 
@@ -235,8 +249,12 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 	msg := tgbotapi.NewMessage(chatID, msgText)
 	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(keyboardRows...)
 
-	c.Telegram.DeleteMessage(tgbotapi.NewDeleteMessage(chatID, sentMsgID))
-	c.Telegram.Send(msg)
+	if err := c.Telegram.DeleteMessage(tgbotapi.NewDeleteMessage(chatID, sentMsgID)); err != nil {
+		c.Logger.Error("Failed to delete message", "error", err)
+	}
+	if _, err := c.Telegram.Send(msg); err != nil {
+		c.Logger.Error("Failed to send message", "error", err)
+	}
 
 	return nil
 }

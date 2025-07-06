@@ -1,19 +1,14 @@
-// Package logger https://github.com/Satont/twitch-notifier
 package logger
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
-	"runtime"
-	"time"
 
 	"github.com/getsentry/sentry-go"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/pkgerrors"
 	slogmulti "github.com/samber/slog-multi"
 	slogsentry "github.com/samber/slog-sentry/v2"
 	slogzerolog "github.com/samber/slog-zerolog/v2"
@@ -45,10 +40,8 @@ func New(opts Opts) *Impl {
 		zeroLogWriter = zerolog.ConsoleWriter{Out: os.Stderr}
 	}
 
-	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 	slogzerolog.SourceKey = "source"
 	slogzerolog.ErrorKeys = []string{"error", "err"}
-	zerolog.ErrorStackFieldName = "stack"
 
 	zeroLogLogger := zerolog.New(zeroLogWriter)
 
@@ -67,16 +60,6 @@ func New(opts Opts) *Impl {
 		log:    log,
 		sentry: opts.Sentry,
 	}
-}
-
-func (c *Impl) handle(level slog.Level, input string, fields ...any) {
-	var pcs [1]uintptr
-	runtime.Callers(3, pcs[:])
-	r := slog.NewRecord(time.Now(), level, input, pcs[0])
-	for _, f := range fields {
-		r.Add(f)
-	}
-	_ = c.log.Handler().Handle(context.Background(), r)
 }
 
 func (c *Impl) Info(input string, fields ...any) {
@@ -107,7 +90,7 @@ func (c *Impl) GetSlog() *slog.Logger {
 	return c.log
 }
 
-// Printf implements fx.Printer interface
-func (l *Impl) Printf(format string, args ...interface{}) {
-	l.Info(fmt.Sprintf(format, args...))
+// Printf implements fx.Printer interface.
+func (c *Impl) Printf(format string, args ...interface{}) {
+	c.Info(fmt.Sprintf(format, args...))
 }

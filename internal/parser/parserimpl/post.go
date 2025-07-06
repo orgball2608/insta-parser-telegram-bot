@@ -2,6 +2,7 @@ package paserimpl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -85,7 +86,8 @@ func (p *ParserImpl) checkNewPostsForUser(ctx context.Context, username string) 
 	p.Logger.Info("Retrieved posts", "username", username, "count", len(posts))
 
 	for _, postItem := range posts {
-		exists, err := p.PostRepo.Exists(ctx, postItem.ID)
+		var exists bool
+		exists, err = p.PostRepo.Exists(ctx, postItem.ID)
 		if err != nil {
 			p.Logger.Error("Failed to check if post exists", "postID", postItem.ID, "error", err)
 			continue
@@ -108,8 +110,9 @@ func (p *ParserImpl) checkNewPostsForUser(ctx context.Context, username string) 
 			PostURL:  fullPost.PostURL,
 		}
 
-		if err := p.PostRepo.Create(ctx, postParser); err != nil {
-			if err != post.ErrAlreadyExists {
+		err = p.PostRepo.Create(ctx, postParser)
+		if err != nil {
+			if !errors.Is(err, post.ErrAlreadyExists) {
 				p.Logger.Error("Failed to save post", "postID", fullPost.ID, "error", err)
 			}
 			continue
@@ -121,7 +124,8 @@ func (p *ParserImpl) checkNewPostsForUser(ctx context.Context, username string) 
 			continue
 		}
 
-		p.Logger.Info("Sending post to subscribers", "username", username, "postID", fullPost.ID, "subscriberCount", len(subscribers))
+		p.Logger.Info("Sending post to subscribers", "username", username,
+			"postID", fullPost.ID, "subscriberCount", len(subscribers))
 
 		for _, chatID := range subscribers {
 			p.sendPostToSubscriber(ctx, chatID, fullPost)
@@ -146,22 +150,7 @@ func (p *ParserImpl) sendPostToSubscriber(ctx context.Context, chatID int64, pos
 		message += fmt.Sprintf("🔗 [View on Instagram](%s)", post.PostURL)
 	}
 
-	if len(post.MediaURLs) > 0 {
-		mediaURL := post.MediaURLs[0]
-
-		sendMessageOperation := func() error {
-			var sendErr error
-			if post.IsVideo {
-				_, sendErr = p.Telegram.SendMessage(chatID, fmt.Sprintf("%s\n\n🎬 [Watch Video](%s)", message, mediaURL))
-			} else {
-				_, sendErr = p.Telegram.SendMessage(chatID, fmt.Sprintf("%s\n\n🖼️ [View Image](%s)", message, mediaURL))
-			}
-			return sendErr
-		}
-		if err := retry.Do(ctx, p.Logger, "SendMessage", sendMessageOperation, retry.DefaultConfig()); err != nil {
-			p.Logger.Error("Failed to send message after retries", "chatID", chatID, "postID", post.ID, "error", err)
-		}
-	} else {
+	if len(post.MediaURLs) == 0 {
 		sendMessageOperation := func() error {
 			_, sendErr := p.Telegram.SendMessage(chatID, message)
 			return sendErr
@@ -169,5 +158,20 @@ func (p *ParserImpl) sendPostToSubscriber(ctx context.Context, chatID int64, pos
 		if err := retry.Do(ctx, p.Logger, "SendMessage", sendMessageOperation, retry.DefaultConfig()); err != nil {
 			p.Logger.Error("Failed to send message after retries", "chatID", chatID, "postID", post.ID, "error", err)
 		}
+		return
+	}
+
+	mediaURL := post.MediaURLs[0]
+	sendMessageOperation := func() error {
+		var sendErr error
+		if post.IsVideo {
+			_, sendErr = p.Telegram.SendMessage(chatID, fmt.Sprintf("%s\n\n🎬 [Watch Video](%s)", message, mediaURL))
+		} else {
+			_, sendErr = p.Telegram.SendMessage(chatID, fmt.Sprintf("%s\n\n🖼️ [View Image](%s)", message, mediaURL))
+		}
+		return sendErr
+	}
+	if err := retry.Do(ctx, p.Logger, "SendMessage", sendMessageOperation, retry.DefaultConfig()); err != nil {
+		p.Logger.Error("Failed to send message after retries", "chatID", chatID, "postID", post.ID, "error", err)
 	}
 }

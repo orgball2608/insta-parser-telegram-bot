@@ -13,6 +13,6 @@ var Module = fx.Options(
 	story.Module,
 	highlights.Module,
 	currentstory.Module,
-	subscription.Module,
+	subscription.Module(),
 	post.Module,
 )

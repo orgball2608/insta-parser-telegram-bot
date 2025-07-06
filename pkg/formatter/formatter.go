@@ -41,7 +41,7 @@ func FormatNumber(n int) string {
 	return string(res)
 }
 
-// EscapeMarkdownV2 escapes special characters in Markdown V2 format
+// EscapeMarkdownV2 escapes special characters in Markdown V2 format.
 func EscapeMarkdownV2(s string) string {
 	var sb strings.Builder
 	for _, r := range s {
