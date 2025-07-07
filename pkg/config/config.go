@@ -48,7 +48,9 @@ type RedisConfig struct {
 }
 
 type ParserConfig struct {
-	PostCheckInterval string `env:"POST_CHECK_INTERVAL" envDefault:"@every 30m"`
+	PostCheckInterval       string `env:"POST_CHECK_INTERVAL" envDefault:"@every 30m"`
+	StoryParsingPoolSize    int    `env:"STORY_PARSING_POOL_SIZE" envDefault:"5"`
+	StoryProcessingPoolSize int    `env:"STORY_PROCESSING_POOL_SIZE" envDefault:"3"`
 }
 
 func New() (*Config, error) {
