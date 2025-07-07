@@ -9,8 +9,8 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/ratelimit"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/subscription"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/unitofwork"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/config"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
@@ -20,34 +20,34 @@ import (
 type Opts struct {
 	fx.In
 
-	Instagram        instagram.Client
-	Telegram         telegram.Client
-	Parser           parser.Client
-	Logger           logger.Logger
-	Config           *config.Config
-	SubscriptionRepo subscription.Repository
-	RateLimiter      ratelimit.Limiter
+	Instagram   instagram.Client
+	Telegram    telegram.Client
+	Parser      parser.Client
+	Logger      logger.Logger
+	Config      *config.Config
+	UnitOfWork  unitofwork.UnitOfWork
+	RateLimiter ratelimit.Limiter
 }
 
 type CommandImpl struct {
-	Instagram        instagram.Client
-	Telegram         telegram.Client
-	Parser           parser.Client
-	Logger           logger.Logger
-	Config           *config.Config
-	SubscriptionRepo subscription.Repository
-	RateLimiter      ratelimit.Limiter
+	Instagram   instagram.Client
+	Telegram    telegram.Client
+	Parser      parser.Client
+	Logger      logger.Logger
+	Config      *config.Config
+	UnitOfWork  unitofwork.UnitOfWork
+	RateLimiter ratelimit.Limiter
 }
 
 func New(opts Opts) *CommandImpl {
 	return &CommandImpl{
-		Instagram:        opts.Instagram,
-		Telegram:         opts.Telegram,
-		Parser:           opts.Parser,
-		Logger:           opts.Logger,
-		Config:           opts.Config,
-		SubscriptionRepo: opts.SubscriptionRepo,
-		RateLimiter:      opts.RateLimiter,
+		Instagram:   opts.Instagram,
+		Telegram:    opts.Telegram,
+		Parser:      opts.Parser,
+		Logger:      opts.Logger,
+		Config:      opts.Config,
+		UnitOfWork:  opts.UnitOfWork,
+		RateLimiter: opts.RateLimiter,
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
@@ -17,14 +16,14 @@ import (
 )
 
 type PgxRepository struct {
-	pool   *pgxpool.Pool
-	logger logger.Logger
+	querier repositories.Querier
+	logger  logger.Logger
 }
 
-func NewPgxRepository(pool *pgxpool.Pool, logger logger.Logger) *PgxRepository {
+func NewPgxRepository(querier repositories.Querier, logger logger.Logger) *PgxRepository {
 	return &PgxRepository{
-		pool:   pool,
-		logger: logger.WithComponent("SubscriptionRepo"),
+		querier: querier,
+		logger:  logger.WithComponent("SubscriptionRepo"),
 	}
 }
 
@@ -47,7 +46,7 @@ func (r *PgxRepository) Create(ctx context.Context, sub domain.Subscription) err
 
 	execOperation := func() error {
 		var execErr error
-		_, execErr = r.pool.Exec(ctx, query, args...)
+		_, execErr = r.querier.Exec(ctx, query, args...)
 		return execErr
 	}
 	err = retry.Do(ctx, r.logger, "CreateSubscription", execOperation, retry.DefaultConfig())
@@ -73,7 +72,7 @@ func (r *PgxRepository) Delete(ctx context.Context, chatID int64, username strin
 	var result pgconn.CommandTag
 	execOperation := func() error {
 		var execErr error
-		result, execErr = r.pool.Exec(ctx, query, args...)
+		result, execErr = r.querier.Exec(ctx, query, args...)
 		return execErr
 	}
 	err = retry.Do(ctx, r.logger, "DeleteSubscription", execOperation, retry.DefaultConfig())
@@ -102,7 +101,7 @@ func (r *PgxRepository) GetByChatID(ctx context.Context, chatID int64) ([]*domai
 	var rows pgx.Rows
 	queryOperation := func() error {
 		var queryErr error
-		rows, queryErr = r.pool.Query(ctx, query, args...)
+		rows, queryErr = r.querier.Query(ctx, query, args...)
 		return queryErr
 	}
 	err = retry.Do(ctx, r.logger, "GetSubscriptionsByChatID", queryOperation, retry.DefaultConfig())
@@ -135,7 +134,7 @@ func (r *PgxRepository) GetAllUniqueUsernames(ctx context.Context) ([]string, er
 	var rows pgx.Rows
 	var queryErr error
 	queryOperation := func() error {
-		rows, queryErr = r.pool.Query(ctx, query)
+		rows, queryErr = r.querier.Query(ctx, query)
 		return queryErr
 	}
 	err := retry.Do(ctx, r.logger, "GetAllUniqueUsernames", queryOperation, retry.DefaultConfig())
@@ -175,7 +174,7 @@ func (r *PgxRepository) GetSubscribersForUser(ctx context.Context, username stri
 	var rows pgx.Rows
 	var queryErr error
 	queryOperation := func() error {
-		rows, queryErr = r.pool.Query(ctx, query, args...)
+		rows, queryErr = r.querier.Query(ctx, query, args...)
 		return queryErr
 	}
 	err = retry.Do(ctx, r.logger, "GetSubscribersForUser", queryOperation, retry.DefaultConfig())
@@ -226,7 +225,7 @@ func (r *PgxRepository) GetSubscribersForUserByType(
 	var rows pgx.Rows
 	var queryErr error
 	queryOperation := func() error {
-		rows, queryErr = r.pool.Query(ctx, query, args...)
+		rows, queryErr = r.querier.Query(ctx, query, args...)
 		return queryErr
 	}
 	err = retry.Do(ctx, r.logger, "GetSubscribersForUserByType", queryOperation, retry.DefaultConfig())
@@ -282,7 +281,7 @@ func (r *PgxRepository) GetAllUniqueUsernamesByType(
 	var rows pgx.Rows
 	var queryErr error
 	queryOperation := func() error {
-		rows, queryErr = r.pool.Query(ctx, query, args...)
+		rows, queryErr = r.querier.Query(ctx, query, args...)
 		return queryErr
 	}
 	err = retry.Do(ctx, r.logger, "GetAllUniqueUsernamesByType", queryOperation, retry.DefaultConfig())
@@ -331,7 +330,7 @@ func (r *PgxRepository) UpdateSubscriptionType(
 	var result pgconn.CommandTag
 	var execErr error
 	execOperation := func() error {
-		result, execErr = r.pool.Exec(ctx, query, args...)
+		result, execErr = r.querier.Exec(ctx, query, args...)
 		return execErr
 	}
 	err = retry.Do(ctx, r.logger, "UpdateSubscriptionType", execOperation, retry.DefaultConfig())

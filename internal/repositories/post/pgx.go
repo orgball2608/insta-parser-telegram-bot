@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
@@ -16,14 +15,14 @@ import (
 )
 
 type Pgx struct {
-	pg     *pgxpool.Pool
-	logger logger.Logger
+	querier repositories.Querier
+	logger  logger.Logger
 }
 
-func NewPgx(pg *pgxpool.Pool, logger logger.Logger) *Pgx {
+func NewPgx(querier repositories.Querier, logger logger.Logger) *Pgx {
 	return &Pgx{
-		pg:     pg,
-		logger: logger.WithComponent("PostParserRepo"),
+		querier: querier,
+		logger:  logger.WithComponent("PostParserRepo"),
 	}
 }
 
@@ -40,7 +39,7 @@ func (p *Pgx) Create(ctx context.Context, post domain.PostParser) error {
 	}
 
 	execOperation := func() error {
-		_, err := p.pg.Exec(ctx, query, args...)
+		_, err := p.querier.Exec(ctx, query, args...)
 		return err
 	}
 
@@ -66,7 +65,7 @@ func (p *Pgx) GetByUsername(ctx context.Context, username string) ([]*domain.Pos
 		return nil, repositories.ErrBadQuery
 	}
 
-	rows, err := p.pg.Query(ctx, query, args...)
+	rows, err := p.querier.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +99,7 @@ func (p *Pgx) GetLatestByUsername(ctx context.Context, username string, count in
 		return nil, repositories.ErrBadQuery
 	}
 
-	rows, err := p.pg.Query(ctx, query, args...)
+	rows, err := p.querier.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +133,7 @@ func (p *Pgx) Exists(ctx context.Context, postID string) (bool, error) {
 	}
 
 	var exists bool
-	err = p.pg.QueryRow(ctx, query, args...).Scan(&exists)
+	err = p.querier.QueryRow(ctx, query, args...).Scan(&exists)
 	if err != nil {
 		if err.Error() == "no rows in result set" {
 			return false, nil
@@ -156,7 +155,7 @@ func (p *Pgx) CleanupOldRecords(ctx context.Context, olderThan string) (int64, e
 		return 0, repositories.ErrBadQuery
 	}
 
-	result, err := p.pg.Exec(ctx, query, args...)
+	result, err := p.querier.Exec(ctx, query, args...)
 	if err != nil {
 		return 0, err
 	}

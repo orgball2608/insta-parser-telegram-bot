@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/unitofwork"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
 
 	"github.com/go-co-op/gocron/v2"
@@ -40,8 +41,15 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 
 			p.Logger.Info("Starting scheduled story parsing for subscribed users...")
 
+			tx, err := p.UnitOfWork.Begin(taskCtx)
+			if err != nil {
+				p.Logger.Error("Failed to begin transaction", "error", err)
+				return
+			}
+			defer tx.Rollback(taskCtx)
+
 			var usernames []string
-			usernames, err = p.SubscriptionRepo.GetAllUniqueUsernames(taskCtx)
+			usernames, err = tx.Subscription().GetAllUniqueUsernames(taskCtx)
 			if err != nil {
 				p.Logger.Error("Failed to get unique usernames from subscriptions", "error", err)
 				return
@@ -80,7 +88,7 @@ func (p *ParserImpl) ScheduleParseStories(ctx context.Context) error {
 
 func (p *ParserImpl) runJobsWithAnts(ctx context.Context, usernames []string) {
 	var wg sync.WaitGroup
-	pool, _ := ants.NewPool(5, ants.WithPreAlloc(true))
+	pool, _ := ants.NewPool(p.Config.Parser.StoryParsingPoolSize, ants.WithPreAlloc(true))
 	defer pool.Release()
 
 	for _, username := range usernames {
@@ -124,7 +132,13 @@ func (p *ParserImpl) processSubscribedUser(ctx context.Context, username string)
 		return nil
 	}
 
-	newStories, err := p.filterNewStories(stories)
+	tx, err := p.UnitOfWork.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for %s: %w", username, err)
+	}
+	defer tx.Rollback(ctx)
+
+	newStories, err := p.filterNewStories(tx, stories)
 	if err != nil {
 		return fmt.Errorf("failed to filter new stories for %s: %w", username, err)
 	}
@@ -136,13 +150,18 @@ func (p *ParserImpl) processSubscribedUser(ctx context.Context, username string)
 
 	p.Logger.Info("Found new stories", "username", username, "count", len(newStories))
 
-	return p.notifySubscribers(ctx, username, newStories)
+	err = p.notifySubscribers(ctx, tx, username, newStories)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
-func (p *ParserImpl) filterNewStories(stories []domain.StoryItem) ([]domain.StoryItem, error) {
+func (p *ParserImpl) filterNewStories(tx unitofwork.Tx, stories []domain.StoryItem) ([]domain.StoryItem, error) {
 	var newStories []domain.StoryItem
 	for _, story := range stories {
-		exists, err := p.checkStoryExists(story.ID)
+		exists, err := p.checkStoryExists(tx, story.ID)
 		if err != nil {
 			p.Logger.Error("Failed to check story existence", "story_id", story.ID, "error", err)
 			continue
@@ -154,8 +173,8 @@ func (p *ParserImpl) filterNewStories(stories []domain.StoryItem) ([]domain.Stor
 	return newStories, nil
 }
 
-func (p *ParserImpl) notifySubscribers(ctx context.Context, username string, stories []domain.StoryItem) error {
-	subscriberIDs, err := p.SubscriptionRepo.GetSubscribersForUser(ctx, username)
+func (p *ParserImpl) notifySubscribers(ctx context.Context, tx unitofwork.Tx, username string, stories []domain.StoryItem) error {
+	subscriberIDs, err := tx.Subscription().GetSubscribersForUser(ctx, username)
 	if err != nil {
 		return fmt.Errorf("failed to get subscribers for %s: %w", username, err)
 	}
@@ -166,7 +185,7 @@ func (p *ParserImpl) notifySubscribers(ctx context.Context, username string, sto
 	}
 
 	for _, story := range stories {
-		if err := p.saveAndSendStory(ctx, story, subscriberIDs); err != nil {
+		if err := p.saveAndSendStory(ctx, tx, story, subscriberIDs); err != nil {
 			p.Logger.Error("Failed to send story", "story_id", story.ID, "error", err)
 		}
 	}
@@ -174,13 +193,13 @@ func (p *ParserImpl) notifySubscribers(ctx context.Context, username string, sto
 	return nil
 }
 
-func (p *ParserImpl) saveAndSendStory(ctx context.Context, story domain.StoryItem, subscriberIDs []int64) error {
+func (p *ParserImpl) saveAndSendStory(ctx context.Context, tx unitofwork.Tx, story domain.StoryItem, subscriberIDs []int64) error {
 	dbStory := domain.Story{
 		StoryID:   story.ID,
 		UserName:  story.Username,
 		CreatedAt: story.TakenAt,
 	}
-	err := p.StoryRepo.Create(ctx, dbStory)
+	err := tx.Story().Create(ctx, dbStory)
 	if err != nil {
 		if errors.Is(err, storyRepo.ErrCannotCreate) {
 			p.Logger.Warn("Story might already exist or failed to create, skipping send", "story_id", dbStory.StoryID)
@@ -246,7 +265,7 @@ func (p *ParserImpl) ProcessStories(stories []domain.StoryItem) error {
 
 	p.Logger.Info("Processing stories", "count", len(stories))
 
-	pool, _ := ants.NewPool(3, ants.WithPreAlloc(true))
+	pool, _ := ants.NewPool(p.Config.Parser.StoryProcessingPoolSize, ants.WithPreAlloc(true))
 	defer pool.Release()
 
 	for _, story := range stories {
@@ -289,7 +308,13 @@ func (p *ParserImpl) ProcessStories(stories []domain.StoryItem) error {
 }
 
 func (p *ParserImpl) processSingleStory(item domain.StoryItem) error {
-	exists, err := p.checkStoryExists(item.ID)
+	tx, err := p.UnitOfWork.Begin(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for story %s: %w", item.ID, err)
+	}
+	defer tx.Rollback(context.Background())
+
+	exists, err := p.checkStoryExists(tx, item.ID)
 	if err != nil {
 		return fmt.Errorf("failed to check story existence: %w", err)
 	}
@@ -299,14 +324,14 @@ func (p *ParserImpl) processSingleStory(item domain.StoryItem) error {
 		return nil
 	}
 
-	if err := p.processStoryItem(item); err != nil {
+	if err := p.processStoryItem(tx, item); err != nil {
 		return fmt.Errorf("failed to process story %s: %w", item.ID, err)
 	}
 
-	return nil
+	return tx.Commit(context.Background())
 }
 
-func (p *ParserImpl) checkStoryExists(storyID string) (bool, error) {
+func (p *ParserImpl) checkStoryExists(tx unitofwork.Tx, storyID string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -315,7 +340,7 @@ func (p *ParserImpl) checkStoryExists(storyID string) (bool, error) {
 		return true, nil
 	}
 
-	_, err := p.StoryRepo.GetByStoryID(ctx, storyID)
+	_, err := tx.Story().GetByStoryID(ctx, storyID)
 	if err != nil {
 		if errors.Is(err, storyRepo.ErrNotFound) {
 			return false, nil
@@ -325,7 +350,7 @@ func (p *ParserImpl) checkStoryExists(storyID string) (bool, error) {
 	return true, nil
 }
 
-func (p *ParserImpl) processStoryItem(item domain.StoryItem) error {
+func (p *ParserImpl) processStoryItem(tx unitofwork.Tx, item domain.StoryItem) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -335,7 +360,7 @@ func (p *ParserImpl) processStoryItem(item domain.StoryItem) error {
 		CreatedAt: item.TakenAt,
 	}
 
-	if err := p.StoryRepo.Create(ctx, story); err != nil {
+	if err := tx.Story().Create(ctx, story); err != nil {
 		if errors.Is(err, storyRepo.ErrCannotCreate) {
 			p.Logger.Warn("Story might already exist or failed to create, skipping send", "story_id", story.StoryID)
 			return nil
@@ -357,31 +382,52 @@ func (p *ParserImpl) SaveHighlight(highlight domain.Highlights) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	p.Logger.Info("Saving highlight", "username", highlight.UserName, "mediaURL", highlight.MediaURL)
-	err := p.HighlightsRepo.Create(ctx, highlight)
+
+	tx, err := p.UnitOfWork.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for highlight: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	err = tx.Highlights().Create(ctx, highlight)
 	if err != nil {
 		return fmt.Errorf("failed to save highlight: %w", err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (p *ParserImpl) SaveCurrentStory(currentStory domain.CurrentStory) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	p.Logger.Info("Saving current story", "username", currentStory.UserName, "mediaURL", currentStory.MediaURL)
-	err := p.CurrentStoryRepo.Create(ctx, currentStory)
+
+	tx, err := p.UnitOfWork.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for current story: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	err = tx.CurrentStory().Create(ctx, currentStory)
 	if err != nil {
 		return fmt.Errorf("failed to save current story: %w", err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (p *ParserImpl) ClearCurrentStories(username string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	p.Logger.Info("Clearing current stories for user", "username", username)
-	err := p.CurrentStoryRepo.DeleteByUserName(ctx, username)
+
+	tx, err := p.UnitOfWork.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for clearing stories: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	err = tx.CurrentStory().DeleteByUserName(ctx, username)
 	if err != nil {
 		return fmt.Errorf("failed to clear current stories for %s: %w", username, err)
 	}
-	return nil
+	return tx.Commit(ctx)
 }

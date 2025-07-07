@@ -84,9 +84,21 @@ func (c *CommandImpl) handleReelCommand(ctx context.Context, update tgbotapi.Upd
 
 	captionToSend := captionBuilder.String()
 
+	progressMessage := "Đang gửi video Reel... 📤"
+	if editErr := c.Telegram.EditMessageText(chatID, sentMsgID, progressMessage); editErr != nil {
+		c.Logger.Error("Failed to edit message text with progress", "error", editErr)
+	}
+
 	err = c.Telegram.SendMediaByUrl(chatID, reel.MediaURLs[0])
 	if err != nil {
 		c.Logger.Error("Failed to send Reel video", "error", err)
+		if editErr := c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("❌ Lỗi khi gửi video Reel: %v", err)); editErr != nil {
+			c.Logger.Error("Failed to edit message text with error", "error", editErr)
+		}
+	} else {
+		if editErr := c.Telegram.EditMessageText(chatID, sentMsgID, "✅ Đã gửi video Reel."); editErr != nil {
+			c.Logger.Error("Failed to edit message text after sending completion", "error", editErr)
+		}
 	}
 
 	if captionToSend != "" {

@@ -176,17 +176,24 @@ func (c *CommandImpl) handleStoryCommand(ctx context.Context, update tgbotapi.Up
 		c.Logger.Error("Error clearing current stories", "error", err)
 	}
 
-	for _, item := range stories {
+	totalStories := len(stories)
+	for i, item := range stories {
 		if item.MediaURL == "" {
 			continue
 		}
+
+		progressMessage := fmt.Sprintf("Đang gửi story %d/%d cho @%s... 📤", i+1, totalStories, escapedUser)
+		if editErr := c.Telegram.EditMessageText(chatID, sentMsgID, progressMessage); editErr != nil {
+			c.Logger.Error("Failed to edit message text with progress", "error", editErr)
+		}
+
 		if err := c.Telegram.SendMediaByUrl(chatID, item.MediaURL); err != nil {
 			c.Logger.Error("Failed to send story media", "url", item.MediaURL, "error", err)
 		}
 	}
 
-	if _, err := c.Telegram.SendMessage(chatID, fmt.Sprintf("Finished sending %d stories for @%s.", len(stories), escapedUser)); err != nil {
-		c.Logger.Error("Failed to send message", "error", err)
+	if err := c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("✅ Đã gửi tất cả %d stories cho @%s.", totalStories, escapedUser)); err != nil {
+		c.Logger.Error("Failed to edit message text after sending completion", "error", err)
 	}
 	return nil
 }
@@ -216,12 +223,18 @@ func (c *CommandImpl) handleHighlightsCommand(ctx context.Context, update tgbota
 
 	err = c.doWithRetryNotify(ctx, chatID, sentMsgID, initialMessage, "GetHighlightAlbumPreviews", op)
 	if err != nil {
-		errMsg := fmt.Sprintf("❌ Error fetching highlights for @%s: %v", escapedUser, err)
+		userFriendlyError := "Đã xảy ra lỗi khi cố gắng lấy album highlight từ Instagram. Vui lòng thử lại sau."
+
 		if errors.Is(err, instagram.ErrPrivateAccount) {
-			errMsg = fmt.Sprintf("Account @%s is private, I cannot fetch highlights.", escapedUser)
+			userFriendlyError = "Rất tiếc, tài khoản Instagram này là riêng tư và không thể truy cập được highlight."
+		} else if strings.Contains(err.Error(), "Timeout waiting for media result") {
+			userFriendlyError = "Yêu cầu lấy album highlight từ Instagram đã hết thời gian. Vui lòng thử lại sau."
+		} else if strings.Contains(err.Error(), "no download links found") || strings.Contains(err.Error(), "Could not find any media in the provided URL.") {
+			userFriendlyError = "Không tìm thấy bất kỳ highlight nào trong URL bạn cung cấp. Vui lòng kiểm tra lại."
 		}
-		if err := c.Telegram.EditMessageText(chatID, sentMsgID, errMsg); err != nil {
-			c.Logger.Error("Failed to edit message text", "error", err)
+
+		if editErr := c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("❌ Lỗi: %s", userFriendlyError)); editErr != nil {
+			c.Logger.Error("Failed to edit message text with user-friendly error", "error", editErr)
 		}
 		return err
 	}
@@ -287,6 +300,28 @@ func (c *CommandImpl) handleCallback(ctx context.Context, callbackQuery *tgbotap
 		)
 
 		c.downloadSingleHighlightAlbum(ctx, chatID, callbackData.User, callbackData.AlbumID, callbackQuery.Message.MessageID)
+	case "unsubscribe_inline":
+		escapedUser := formatter.EscapeMarkdownV2(callbackData.User)
+		c.Telegram.EditMessageText(
+			chatID,
+			callbackQuery.Message.MessageID,
+			fmt.Sprintf("Đang hủy đăng ký @%s...", escapedUser),
+		)
+
+		tx, err := c.UnitOfWork.Begin(ctx)
+		if err != nil {
+			c.Logger.Error("Failed to begin transaction for unsubscribe", "error", err)
+			return
+		}
+		defer tx.Rollback(ctx)
+
+		if err := tx.Subscription().Delete(ctx, chatID, callbackData.User); err != nil {
+			c.Logger.Error("Failed to unsubscribe via inline button", "error", err)
+			errMsg := fmt.Sprintf("❌ Lỗi khi hủy đăng ký @%s: %v", escapedUser, err)
+			c.Telegram.EditMessageText(chatID, callbackQuery.Message.MessageID, errMsg)
+		} else {
+			c.Telegram.EditMessageText(chatID, callbackQuery.Message.MessageID, fmt.Sprintf("✅ Đã hủy đăng ký @%s.", escapedUser))
+		}
 	}
 }
 

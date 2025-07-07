@@ -7,21 +7,21 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
 )
 
 type PgxRepository struct {
-	pool   *pgxpool.Pool
-	logger logger.Logger
+	querier repositories.Querier
+	logger  logger.Logger
 }
 
-func NewPgxRepository(pool *pgxpool.Pool, logger logger.Logger) *PgxRepository {
+func NewPgxRepository(querier repositories.Querier, logger logger.Logger) *PgxRepository {
 	return &PgxRepository{
-		pool:   pool,
-		logger: logger,
+		querier: querier,
+		logger:  logger,
 	}
 }
 
@@ -34,7 +34,7 @@ func (r *PgxRepository) GetByID(ctx context.Context, id int) (*domain.Highlights
 
 	var highlights domain.Highlights
 	queryOperation := func() error {
-		return r.pool.QueryRow(ctx, query, id).Scan(
+		return r.querier.QueryRow(ctx, query, id).Scan(
 			&highlights.ID,
 			&highlights.UserName,
 			&highlights.MediaURL,
@@ -60,7 +60,7 @@ func (r *PgxRepository) GetByUserName(ctx context.Context, userName string) ([]*
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.pool.Query(ctx, query, userName)
+	rows, err := r.querier.Query(ctx, query, userName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query highlights by username: %w", err)
 	}
@@ -100,7 +100,7 @@ func (r *PgxRepository) Create(ctx context.Context, highlights domain.Highlights
 	`
 
 	var id int
-	err := r.pool.QueryRow(
+	err := r.querier.QueryRow(
 		ctx,
 		query,
 		highlights.UserName,

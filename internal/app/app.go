@@ -20,9 +20,9 @@ import (
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser"
 	paserimpl "github.com/orgball2608/insta-parser-telegram-bot/internal/parser/parserimpl"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/ratelimit"
-	repositories "github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/fx"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram/telegramimpl"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/unitofwork"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/config"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/pgx"
@@ -61,7 +61,7 @@ var Module = fx.Options(
 			fx.As(new(command.Client)),
 		),
 	),
-	repositories.Module,
+	unitofwork.Module,
 	fx.Invoke(runMigrations),
 	fx.Invoke(registerHTTPRoutes),
 	fx.Invoke(startServices),

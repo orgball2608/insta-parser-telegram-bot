@@ -8,25 +8,24 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
 )
 
-func NewPgx(pg *pgxpool.Pool, logger logger.Logger) *Pgx {
+func NewPgx(querier repositories.Querier, logger logger.Logger) *Pgx {
 	return &Pgx{
-		pg:     pg,
-		logger: logger,
+		querier: querier,
+		logger:  logger,
 	}
 }
 
 var _ Repository = (*Pgx)(nil)
 
 type Pgx struct {
-	pg     *pgxpool.Pool
-	logger logger.Logger
+	querier repositories.Querier
+	logger  logger.Logger
 }
 
 func (p *Pgx) getStoryBy(ctx context.Context, cond sq.Eq, operationName string) (*domain.Story, error) {
@@ -40,7 +39,7 @@ func (p *Pgx) getStoryBy(ctx context.Context, cond sq.Eq, operationName string) 
 
 	story := Story{}
 	queryOperation := func() error {
-		return p.pg.QueryRow(ctx, query, args...).Scan(&story.ID, &story.StoryID, &story.UserName, &story.CreatedAt)
+		return p.querier.QueryRow(ctx, query, args...).Scan(&story.ID, &story.StoryID, &story.UserName, &story.CreatedAt)
 	}
 	err = retry.Do(ctx, p.logger, operationName, queryOperation, retry.DefaultConfig())
 	if err != nil {
@@ -83,7 +82,7 @@ func (p *Pgx) Create(ctx context.Context, story domain.Story) error {
 	}
 
 	execOperation := func() error {
-		_, err := p.pg.Exec(ctx, query, args...)
+		_, err := p.querier.Exec(ctx, query, args...)
 		return err
 	}
 	err = retry.Do(ctx, p.logger, "CreateStory", execOperation, retry.DefaultConfig())
@@ -108,7 +107,7 @@ func (p *Pgx) CleanupOldRecords(ctx context.Context, olderThan time.Duration) (i
 	var result pgconn.CommandTag
 	execOperation := func() error {
 		var execErr error
-		result, execErr = p.pg.Exec(ctx, query, args...)
+		result, execErr = p.querier.Exec(ctx, query, args...)
 		return execErr
 	}
 	err = retry.Do(ctx, p.logger, "CleanupOldRecords", execOperation, retry.DefaultConfig())

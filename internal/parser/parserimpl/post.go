@@ -46,7 +46,14 @@ func (p *ParserImpl) SchedulePostChecking(ctx context.Context) error {
 			checkCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 			defer cancel()
 
-			usernames, err := p.SubscriptionRepo.GetAllUniqueUsernamesByType(checkCtx, domain.SubscriptionTypePost)
+			tx, err := p.UnitOfWork.Begin(checkCtx)
+			if err != nil {
+				p.Logger.Error("Failed to begin transaction for post checking", "error", err)
+				return
+			}
+			defer tx.Rollback(checkCtx)
+
+			usernames, err := tx.Subscription().GetAllUniqueUsernamesByType(checkCtx, domain.SubscriptionTypePost)
 			if err != nil {
 				p.Logger.Error("Failed to get usernames for post checking", "error", err)
 				return
@@ -86,21 +93,30 @@ func (p *ParserImpl) checkNewPostsForUser(ctx context.Context, username string) 
 	p.Logger.Info("Retrieved posts", "username", username, "count", len(posts))
 
 	for _, postItem := range posts {
+		tx, err := p.UnitOfWork.Begin(ctx)
+		if err != nil {
+			p.Logger.Error("Failed to begin transaction for post checking", "error", err)
+			continue
+		}
+
 		var exists bool
-		exists, err = p.PostRepo.Exists(ctx, postItem.ID)
+		exists, err = tx.Post().Exists(ctx, postItem.ID)
 		if err != nil {
 			p.Logger.Error("Failed to check if post exists", "postID", postItem.ID, "error", err)
+			tx.Rollback(ctx)
 			continue
 		}
 
 		if exists {
 			p.Logger.Debug("Post already processed", "postID", postItem.ID)
+			tx.Rollback(ctx)
 			continue
 		}
 
 		fullPost, err := p.Instagram.GetUserPost(ctx, postItem.PostURL)
 		if err != nil {
 			p.Logger.Error("Failed to get post details", "postURL", postItem.PostURL, "error", err)
+			tx.Rollback(ctx)
 			continue
 		}
 
@@ -110,17 +126,19 @@ func (p *ParserImpl) checkNewPostsForUser(ctx context.Context, username string) 
 			PostURL:  fullPost.PostURL,
 		}
 
-		err = p.PostRepo.Create(ctx, postParser)
+		err = tx.Post().Create(ctx, postParser)
 		if err != nil {
 			if !errors.Is(err, post.ErrAlreadyExists) {
 				p.Logger.Error("Failed to save post", "postID", fullPost.ID, "error", err)
 			}
+			tx.Rollback(ctx)
 			continue
 		}
 
-		subscribers, err := p.SubscriptionRepo.GetSubscribersForUserByType(ctx, username, domain.SubscriptionTypePost)
+		subscribers, err := tx.Subscription().GetSubscribersForUserByType(ctx, username, domain.SubscriptionTypePost)
 		if err != nil {
 			p.Logger.Error("Failed to get subscribers", "username", username, "error", err)
+			tx.Rollback(ctx)
 			continue
 		}
 
@@ -129,6 +147,10 @@ func (p *ParserImpl) checkNewPostsForUser(ctx context.Context, username string) 
 
 		for _, chatID := range subscribers {
 			p.sendPostToSubscriber(ctx, chatID, fullPost)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			p.Logger.Error("Failed to commit transaction for post checking", "error", err)
 		}
 	}
 }

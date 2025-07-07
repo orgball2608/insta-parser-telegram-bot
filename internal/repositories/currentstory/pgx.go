@@ -7,21 +7,21 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/retry"
 )
 
 type PgxRepository struct {
-	pool   *pgxpool.Pool
-	logger logger.Logger
+	querier repositories.Querier
+	logger  logger.Logger
 }
 
-func NewPgxRepository(pool *pgxpool.Pool, logger logger.Logger) *PgxRepository {
+func NewPgxRepository(querier repositories.Querier, logger logger.Logger) *PgxRepository {
 	return &PgxRepository{
-		pool:   pool,
-		logger: logger,
+		querier: querier,
+		logger:  logger,
 	}
 }
 
@@ -34,7 +34,7 @@ func (r *PgxRepository) GetByID(ctx context.Context, id int) (*domain.CurrentSto
 
 	var currentStory domain.CurrentStory
 	queryOperation := func() error {
-		return r.pool.QueryRow(ctx, query, id).Scan(
+		return r.querier.QueryRow(ctx, query, id).Scan(
 			&currentStory.ID,
 			&currentStory.UserName,
 			&currentStory.MediaURL,
@@ -60,7 +60,7 @@ func (r *PgxRepository) GetByUserName(ctx context.Context, userName string) ([]*
 		ORDER BY created_at DESC
 	`
 
-	rows, err := r.pool.Query(ctx, query, userName)
+	rows, err := r.querier.Query(ctx, query, userName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query current stories by username: %w", err)
 	}
@@ -100,7 +100,7 @@ func (r *PgxRepository) Create(ctx context.Context, currentStory domain.CurrentS
 	`
 
 	var id int
-	err := r.pool.QueryRow(
+	err := r.querier.QueryRow(
 		ctx,
 		query,
 		currentStory.UserName,
@@ -121,7 +121,7 @@ func (r *PgxRepository) DeleteByUserName(ctx context.Context, userName string) e
 		WHERE username = $1
 	`
 
-	_, err := r.pool.Exec(ctx, query, userName)
+	_, err := r.querier.Exec(ctx, query, userName)
 	if err != nil {
 		return fmt.Errorf("failed to delete current stories for user %s: %w", userName, err)
 	}

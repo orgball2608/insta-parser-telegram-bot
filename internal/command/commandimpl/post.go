@@ -2,12 +2,14 @@ package commandimpl
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/domain"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/formatter"
 )
 
@@ -41,14 +43,26 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 	err = c.doWithRetryNotify(ctx, chatID, sentMsgID, initialMessage, "GetUserPost", op)
 
 	if err != nil {
-		if err := c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("❌ Error fetching post: %v", err)); err != nil {
-			c.Logger.Error("Failed to edit message text", "error", err)
+		userFriendlyError := "Đã xảy ra lỗi khi cố gắng lấy nội dung từ Instagram. Vui lòng thử lại sau."
+
+		if errors.Is(err, instagram.ErrPrivateAccount) {
+			userFriendlyError = "Rất tiếc, tài khoản Instagram này là riêng tư và không thể truy cập được."
+		} else if strings.Contains(err.Error(), "could not parse URL") || strings.Contains(err.Error(), "invalid URL") {
+			userFriendlyError = "URL Instagram bạn cung cấp không hợp lệ. Vui lòng kiểm tra lại."
+		} else if strings.Contains(err.Error(), "no download links found") || strings.Contains(err.Error(), "Could not find any media in the provided URL.") {
+			userFriendlyError = "Không tìm thấy bất kỳ phương tiện nào trong URL bạn cung cấp. Vui lòng kiểm tra lại."
+		} else if strings.Contains(err.Error(), "Timeout waiting for media result") {
+			userFriendlyError = "Yêu cầu lấy nội dung từ Instagram đã hết thời gian. Vui lòng thử lại sau."
+		}
+
+		if editErr := c.Telegram.EditMessageText(chatID, sentMsgID, fmt.Sprintf("❌ Lỗi: %s", userFriendlyError)); editErr != nil {
+			c.Logger.Error("Failed to edit message text with user-friendly error", "error", editErr)
 		}
 		return fmt.Errorf("failed to get post from URL: %w", err)
 	}
 
 	if len(post.MediaURLs) == 0 {
-		if err := c.Telegram.EditMessageText(chatID, sentMsgID, "Could not find any media in the provided URL."); err != nil {
+		if err := c.Telegram.EditMessageText(chatID, sentMsgID, "Không tìm thấy bất kỳ phương tiện nào trong URL bạn cung cấp."); err != nil {
 			c.Logger.Error("Failed to edit message text", "error", err)
 		}
 		return nil
@@ -114,10 +128,25 @@ func (c *CommandImpl) handlePostCommand(ctx context.Context, update tgbotapi.Upd
 					c.Logger.Error("Failed to send message", "error", err)
 				}
 			}
-			for _, mediaURL := range post.MediaURLs {
+
+			totalMedia := len(post.MediaURLs)
+			for i, mediaURL := range post.MediaURLs {
+				progressMessage := fmt.Sprintf("Đang gửi phương tiện %d/%d... 📤", i+1, totalMedia)
+				if editErr := c.Telegram.EditMessageText(chatID, sentMsgID, progressMessage); editErr != nil {
+					c.Logger.Error("Failed to edit message text with progress", "error", editErr)
+				}
+
 				if err := c.Telegram.SendMediaByUrl(chatID, mediaURL); err != nil {
 					c.Logger.Error("Failed to send media by URL", "error", err)
 				}
+			}
+			if editErr := c.Telegram.EditMessageText(chatID, sentMsgID, "✅ Đã gửi tất cả phương tiện."); editErr != nil {
+				c.Logger.Error("Failed to edit message text after individual sending completion", "error", editErr)
+			}
+		} else {
+			// If media group was sent successfully, update the message to indicate completion
+			if editErr := c.Telegram.EditMessageText(chatID, sentMsgID, "✅ Đã gửi tất cả phương tiện."); editErr != nil {
+				c.Logger.Error("Failed to edit message text after media group completion", "error", editErr)
 			}
 		}
 	}

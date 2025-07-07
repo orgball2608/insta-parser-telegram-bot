@@ -8,12 +8,8 @@ import (
 	"github.com/go-co-op/gocron/v2"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/instagram"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/parser"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/currentstory"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/highlights"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/post"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/story"
-	"github.com/orgball2608/insta-parser-telegram-bot/internal/repositories/subscription"
 	"github.com/orgball2608/insta-parser-telegram-bot/internal/telegram"
+	"github.com/orgball2608/insta-parser-telegram-bot/internal/unitofwork"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/config"
 	"github.com/orgball2608/insta-parser-telegram-bot/pkg/logger"
 	"go.uber.org/fx"
@@ -22,28 +18,20 @@ import (
 type Opts struct {
 	fx.In
 
-	Instagram        instagram.Client
-	Telegram         telegram.Client
-	StoryRepo        story.Repository
-	HighlightsRepo   highlights.Repository
-	CurrentStoryRepo currentstory.Repository
-	PostRepo         post.Repository
-	Logger           logger.Logger
-	Config           *config.Config
-	SubscriptionRepo subscription.Repository
+	Instagram  instagram.Client
+	Telegram   telegram.Client
+	Logger     logger.Logger
+	Config     *config.Config
+	UnitOfWork unitofwork.UnitOfWork
 }
 
 type ParserImpl struct {
-	Instagram        instagram.Client
-	Telegram         telegram.Client
-	StoryRepo        story.Repository
-	HighlightsRepo   highlights.Repository
-	CurrentStoryRepo currentstory.Repository
-	PostRepo         post.Repository
-	Logger           logger.Logger
-	Config           *config.Config
-	SubscriptionRepo subscription.Repository
-	Scheduler        gocron.Scheduler
+	Instagram  instagram.Client
+	Telegram   telegram.Client
+	Logger     logger.Logger
+	Config     *config.Config
+	UnitOfWork unitofwork.UnitOfWork
+	Scheduler  gocron.Scheduler
 }
 
 func New(opts Opts) *ParserImpl {
@@ -59,16 +47,12 @@ func New(opts Opts) *ParserImpl {
 	}
 
 	return &ParserImpl{
-		Instagram:        opts.Instagram,
-		Telegram:         opts.Telegram,
-		StoryRepo:        opts.StoryRepo,
-		HighlightsRepo:   opts.HighlightsRepo,
-		CurrentStoryRepo: opts.CurrentStoryRepo,
-		PostRepo:         opts.PostRepo,
-		Logger:           opts.Logger,
-		Config:           opts.Config,
-		SubscriptionRepo: opts.SubscriptionRepo,
-		Scheduler:        scheduler,
+		Instagram:  opts.Instagram,
+		Telegram:   opts.Telegram,
+		Logger:     opts.Logger,
+		Config:     opts.Config,
+		UnitOfWork: opts.UnitOfWork,
+		Scheduler:  scheduler,
 	}
 }
 
@@ -104,10 +88,22 @@ func (p *ParserImpl) ScheduleDatabaseCleanup(ctx context.Context) error {
 
 			const cleanupDuration = 5 * 24 * time.Hour
 
+			tx, err := p.UnitOfWork.Begin(cleanupCtx)
+			if err != nil {
+				p.Logger.Error("Failed to begin transaction for cleanup", "error", err)
+				return
+			}
+			defer tx.Rollback(cleanupCtx)
+
 			var rowsDeleted int64
-			rowsDeleted, err = p.StoryRepo.CleanupOldRecords(cleanupCtx, cleanupDuration)
+			rowsDeleted, err = tx.Story().CleanupOldRecords(cleanupCtx, cleanupDuration)
 			if err != nil {
 				p.Logger.Error("Failed to clean up old records", "error", err)
+				return
+			}
+
+			if err := tx.Commit(cleanupCtx); err != nil {
+				p.Logger.Error("Failed to commit transaction for cleanup", "error", err)
 				return
 			}
 
